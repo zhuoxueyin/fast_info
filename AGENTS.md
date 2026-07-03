@@ -18,7 +18,7 @@
 
 | 维度 | 当前 |
 |---|---|
-| 阶段 | **MVP4 · 多源 + KOL + 二级分类 + 多渠道推送 + 移动端** |
+| 阶段 | **MVP5 · 源可管理 + 可监控** (Day 5, 2026-07-04) |
 | 最新里程碑 | Day 4:14 RSS + 5 KOL + L1/L2 分类 + 5 渠道推送 + 移动端 /m |
 | 数据 | `items` 113(含 L1) · `subscriptions` 17(含 channels/L1L2/interval_min) · `subscriptions_delivered` 143 · `users` 13 · `task_runs` 2 · `source_config` 1 |
 | 数据源 | **14 RSS**(科技/AI/财经/体育/娱乐/汽车)+ **5 KOL**(微博/X/小红书) |
@@ -27,7 +27,9 @@
 | 推送渠道 | **5 种**:`inbox` / `email`(SMTP)/ `feishu` / `wechat` / `webhook` |
 | 分类 | **L1**(7):科技/AI/体育/娱乐/财经/汽车/其他 + **L2**(30+) |
 | 后台 daemon | `ingest_daemon` 30 min + `subs_scheduler` 60s 自动跑订阅 |
-| 接口 | CLI + FastAPI(31 endpoint) + Web(11 页面) + **Mobile(6 页面)** + Docs(12 篇) |
+| 接口 | CLI + FastAPI(**42** endpoint) + Web(11 页面) + **Mobile(6 页面)** + Docs(12 篇) |
+| 源管理 | `source_config` 19 条(多文档) + `source_runs` 每日 ~33 条 + `system_alerts` 事件总账 |
+| 源自动化 | huxiu 多镜像 fallback / nitter 5 mirror 轮询 / 微博 OpenAPI 脚手架 / 连续失败 ≥5 自动禁用 + 告警 |
 | 部署目标 | 阿里云 ECS 2C2G(~¥30/月) |
 | 代码规模 | `src/` 9 包(含 `notifier/` + `taxonomy.py` + `crawler/collectors.py`)· `scripts/` 15 个 |
 
@@ -123,20 +125,27 @@ fast_info/                                              ← 项目根
 ├── config/
 │   └── .env.example                                    ← 环境变量样例(MMX_API_KEY 等)
 │
-├── src/                                                ← 所有 import 起点
+├── src/                                                ← 所有 import 起点 (Day 5 升级)
 │   ├── llm/
 │   │   └── model_registry.py                           ← ⭐ M2.7-highspeed→M2.7→M3→K2.6 四级路由
-│   ├── crawler/
-│   │   └── rss_collector.py                            ← 7 RSS 源(huxiu 持续 timeout)
-│   ├── storage/
-│   │   └── mongo_writer.py                             ← Mongo CRUD + text index + ensure_indexes
+│   ├── crawler/                                        ← ⭐ Day 5 改造
+│   │   ├── rss_collector.py                            ← Item dataclass + 单 URL RSS 兼容入口
+│   │   ├── collectors.py                               ← ⭐ 多镜像 fallback + 每源 source_runs
+│   │   ├── sources.py                                  ← RSS_SOURCES / KOL_SOURCES 注册表(Day 5 删 xhs demo)
+│   │   ├── mirrors.py                                  ← ⭐ Day 5: HUXIU_RSS / NITTER_MIRRORS
+│   │   ├── weibo_openapi.py                            ← ⭐ Day 5: 双模式 (openapi / scraper)
+│   │   └── alarms.py                                   ← ⭐ Day 5: system_alerts 派发
+│   ├── storage/                                        ← ⭐ Day 5 多文档
+│   │   ├── mongo_writer.py                             ← Mongo CRUD + text index + ensure_indexes (新加 source_runs/source_config/system_alerts)
+│   │   ├── source_runs.py                              ← ⭐ Day 5: 每源记录 + 健康度 + 自动禁用
+│   │   └── source_config.py                            ← ⭐ Day 5: 多文档 CRUD + seed
 │   ├── retrieval/
 │   │   └── __init__.py                                 ← search_text / hybrid_search(v1 + v2 升级位)
 │   ├── subscription/
 │   │   └── __init__.py                                 ← NL→cron + run_subscription(read-DB)
 │   ├── auth/
 │   │   └── __init__.py                                 ← PBKDF2 + JWT + session
-│   └── api/                                            ← ⭐ Day 2 新增
+│   └── api/                                            ← ⭐ Day 2 新增 / Day 5 加 source_admin
 │       ├── app.py                                      ← FastAPI 实例 + lifespan
 │       ├── deps.py                                     ← require_user 鉴权依赖
 │       ├── schemas.py                                  ← Pydantic 请求/响应
@@ -550,8 +559,8 @@ await registry.aclose()
 | **Day 2** | FastAPI 化 | 15 endpoint + JWT 鉴权 + e2e smoke 13/13 + 文档同步 | ✅ |
 | **Day 3** | Web 平台 + 文档站 | Vue3 前端 11 页面 + VitePress 文档站 12 篇 + 后端 9 个新 API + admin 视图 | ✅ |
 | **Day 4** | 多源 + KOL + 二级分类 + 多渠道推送 + 移动端 | 14 RSS + 5 KOL + L1/L2 + 5 渠道 Notifier + /m 移动端 + subs_scheduler | ✅ **今日** |
-| **Day 5** | per-source 调度 + 真实 KOL API + 平板适配 | 小红书签名 API / 微博 OpenAPI + scheduler 可视化 + 移动端完善 | ⏳ 下一棒 |
-| **Day 6+** | 推送可靠性 + 移动端完善 | 死信队列 / 重试 / 移动端订阅管理 / 平板适配 | ⏳ |
+| **Day 5** | 源可管理 + 可监控 | 19 源 × source_runs + 8 admin API + SourcesPage 升级 + 自动禁用 + 告警 + huxiu/nitter 多镜像 | ✅ **今日** |
+| **Day 6+** | 推送可靠性 + 移动端完善 + DevOps Day 6 (5 服务镜像化) | 死信队列 / 重试 / 移动端订阅管理 / 平板适配 / Phase 4 真 KOL API (X v2 / 微博 OpenAPI) | ⏳ |
 
 **更新节奏**:每日完工 → 写 `docs/day{N}-deliverable.md` → 回填本文件 §1 / §5 / §6 相应章节。
 
@@ -612,7 +621,7 @@ await registry.aclose()
 | ISSUE-004 | ingest_daemon 进程级轮询非 systemd | ECS 上需要 systemd unit 兜底 | 文档已带 §5.3 部署说明,Day 3 加 unit 文件 |
 | ISSUE-005 | ~~FastAPI 未上~~ → **已 Day 2 实装,smoke 13/13 通过** | — | ✅ 已关闭 |
 | ISSUE-006 | 没有 retrieval 层 v2 | 仅 MongoDB text search,精度受限 | Day 4 |
-| **NEW-1** | MongoDB text 索引对中文检索差 | "量子位" 0 命中,英文词正常 | Day 4 切 BGE-M3 / DashScope |
+| **NEW-1** | MongoDB text 索引对中文检索差 | "量子位" 0 命中,英文词正常 | Day 4 切 BGE-M3 / DashScope ⚠️ **未切,Day 5 不在范围** |
 | **NEW-2** | Redis 当前没被代码使用 | docker daemon 没起 + 代码无 Redis 调用,"队列/去重"是文档理想 | 推迟(Day 5+ 真用上时再接) |
 | **NEW-3** | LLM 摘要 prompt 在 3 处各写一份 | CLI / daemon / `fetch_and_summarize.py` 格式飘忽 | Day 3 抽到 `src/llm/prompts.py` |
 | **NEW-4** | CLI 与 API 鉴权体感割裂 | CLI `.session.json` vs API `Authorization: Bearer` | 短期接受,Day 5+ 写统一前端收口 |
@@ -624,6 +633,14 @@ await registry.aclose()
 | TODO-004 | 🔒 CORS `allow_origins=["*"]` 生产有风险 | | Day 5+ |
 | TODO-005 | 🛡 鉴权只 401,无 403 / role 细分 | | Day 5+ |
 | TODO-006 | ⚠️ 无限频 / IP 黑洞名单,抓取可能被 ban | | Day 3+ |
+
+---
+
+| ISSUE-001 | ~~huxiu RSS `ReadTimeout`~~ | huxiu 多镜像 fallback 已解 | ✅ **Day 5 已关闭** |
+| **NEW-7** | 小红书/抖音/微博 scrape 易被风控 | 数据源稳定性问题 | Day 5 仅删 XHS demo,待 Phase 4 接 X v2 / 微博 OpenAPI |
+| **NEW-8** | admin API 当前公开,前端未鉴权 | source_admin/* 全公开 | 待 role-based guard |
+| **NEW-9** | 告警 webhook 走 env,未抽到 Notifier 框架 | 当前用 `httpx.post(webhook, json=payload)` | 下一轮抽到 `notifier.send_all(user, ['webhook'], ...)` |
+| **Day 5** | source_runs 自动禁用的 source_config 联动 + alarm | ✅ 已上线 | ✅ 关闭 |
 
 ---
 
@@ -699,4 +716,4 @@ python fastinfo.py stats                             # MongoDB 状态 / 索引
 
 ---
 
-*Last updated: 2026-07-02(Day 2 完工)* · *Next update: Day 3 完工时*
+*Last updated: 2026-07-04(Day 5 完成)* · *Next update: Day 6 完工时* · *Next update: Day 3 完工时*
