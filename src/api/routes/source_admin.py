@@ -196,3 +196,45 @@ async def runs_one(source_id: str, limit: int = Query(50, ge=1, le=200)):
         "source_id": source_id,
         "items": get_recent_runs(source_id=source_id, limit=limit),
     }
+
+
+# ============================================================
+# Day 5 · system_alerts 接口
+# ============================================================
+
+@router.get("/alerts/list")
+async def list_alerts(
+    limit: int = Query(50, ge=1, le=200),
+    severity: Optional[str] = Query(None),
+    unack_only: bool = Query(False),
+):
+    """列出 system_alerts,默认 50 条最新"""
+    db_d = __import__("storage.mongo_writer", fromlist=["get_db"]).get_db()
+    q = {}
+    if severity:
+        q["severity"] = severity
+    if unack_only:
+        q["ack"] = False
+    cur = db_d["system_alerts"].find(q).sort("created_at", -1).limit(limit)
+    out = []
+    for r in cur:
+        r["_id"] = str(r["_id"])
+        out.append(r)
+    return {"items": out, "total": len(out)}
+
+
+@router.post("/alerts/{alert_id}/ack")
+async def ack_alert(alert_id: str):
+    """标记告警已确认"""
+    from bson import ObjectId
+    db_d = __import__("storage.mongo_writer", fromlist=["get_db"]).get_db()
+    try:
+        r = db_d["system_alerts"].update_one(
+            {"_id": ObjectId(alert_id)},
+            {"$set": {"ack": True, "acked_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}},
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="bad alert_id")
+    if r.modified_count == 0:
+        raise HTTPException(status_code=404, detail="not found")
+    return {"ok": True}

@@ -99,10 +99,25 @@ def record_source_run(
                 "consecutive_fails": fails,
                 "updated_at": now_iso(),
             }
+
             if fails >= threshold and sc.get("is_active") is not False:
                 update["is_active"] = False
                 update["disabled_reason"] = f"consecutive_fails={fails} >= {threshold}"
                 update["disabled_at"] = now_iso()
+                # 触发 alarm (Day 5)
+                try:
+                    from crawler.alarms import fire as _fire_alarm
+                    _fire_alarm(
+                        source_id=source_id,
+                        kind="auto_disabled",
+                        severity="warning",
+                        message=f"源 {source_id} 自动禁用:fails={fails} >= {threshold}",
+                        extra={"fails": fails, "threshold": threshold,
+                               "last_error": error_msg},
+                    )
+                except Exception as _ae:
+                    pass  # alarm 失败不影响主流程
+
             db["source_config"].update_one(
                 {"source_id": source_id},
                 {"$set": update},
@@ -180,8 +195,14 @@ def get_recent_runs(source_id: Optional[str] = None, limit: int = 50) -> list[di
     return out
 
 
+from crawler.alarms import ensure_indexes as _ensure_alarm_indexes  # noqa: E402
+
 def ensure_indexes():
     db = get_db()
     db["source_runs"].create_index([("source_id", 1), ("created_at", -1)])
     db["source_runs"].create_index([("status", 1), ("created_at", -1)])
     db["source_config"].create_index("source_id", unique=True)
+    try:
+        _ensure_alarm_indexes()
+    except Exception:
+        pass
