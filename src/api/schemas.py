@@ -219,3 +219,103 @@ class IngestResponse(BaseModel):
     summarized: int
     failed: int
     errors: List[str] = []
+
+
+# ============================================================
+# Day 5: Source config Pydantic
+# ============================================================
+from pydantic import BaseModel, Field
+from typing import Optional
+
+
+class SourceConfigBase(BaseModel):
+    source_id: str = Field(..., description="唯一 ID,如 huxiu / weibo:1887344341")
+    kind: str = Field(..., description="源类型:rss / weibo_user / x_user / xhs_note / hot_ranking")
+    display_name: str = Field(..., description="展示名")
+    url: Optional[str] = Field("", description="主 URL")
+    urls: Optional[list[str]] = Field(default_factory=list, description="多 URL fallback(RSS)")
+    l1: Optional[str] = Field("", description="一级类目(科技/AI/...)")
+    tags: Optional[list[str]] = Field(default_factory=list)
+    cron_interval_seconds: int = 1800
+    is_active: bool = True
+    weight: int = 100
+    limit_per_run: int = 15
+    dedup_window_days: int = 7
+    auto_disable_threshold: int = 5
+    platform_config: Optional[dict] = None
+
+
+class SourceConfigCreate(SourceConfigBase):
+    pass
+
+
+class SourceConfigUpdate(BaseModel):
+    display_name: Optional[str] = None
+    url: Optional[str] = None
+    urls: Optional[list[str]] = None
+    l1: Optional[str] = None
+    tags: Optional[list[str]] = None
+    cron_interval_seconds: Optional[int] = None
+    is_active: Optional[bool] = None
+    weight: Optional[int] = None
+    limit_per_run: Optional[int] = None
+    auto_disable_threshold: Optional[int] = None
+    platform_config: Optional[dict] = None
+
+
+class SourceConfig(SourceConfigBase):
+    consecutive_fails: int = 0
+    last_success_at: Optional[str] = None
+    last_fail_at: Optional[str] = None
+    disabled_reason: Optional[str] = None
+    disabled_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class SourceRun(BaseModel):
+    run_id: str
+    source_id: str
+    started_at: str
+    ended_at: str
+    duration_ms: int
+    status: str
+    fetched_count: int
+    new_count: int = 0
+    deduped_count: int = 0
+    summarized_count: int = 0
+    failed_count: int = 0
+    error_code: Optional[str] = None
+    error_msg: Optional[str] = None
+    created_at: str
+
+
+class SourceHealth(BaseModel):
+    source_id: str
+    window_days: int
+    total_runs: int
+    ok_runs: int
+    fail_runs: int
+    success_rate: Optional[float] = None
+    total_fetched: int
+    total_new: int
+    total_summarized: int
+    total_deduped: int
+    avg_duration_ms: Optional[int] = None
+    last_run_at: Optional[str] = None
+    last_status: Optional[str] = None
+    last_error_code: Optional[str] = None
+
+
+class SourceHealthSummary(BaseModel):
+    source_id: str
+    display_name: Optional[str] = None
+    kind: Optional[str] = None
+    l1: Optional[str] = None
+    is_active: bool
+    consecutive_fails: int
+    auto_disable_threshold: int
+    last_success_at: Optional[str] = None
+    last_fail_at: Optional[str] = None
+    disabled_reason: Optional[str] = None
+    health: SourceHealth

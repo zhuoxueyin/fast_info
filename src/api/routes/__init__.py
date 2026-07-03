@@ -32,3 +32,6 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(inbox.router, prefix="/api")
     app.include_router(categories.router, prefix="/api")
     app.include_router(admin.router, prefix="/api")
+
+# Day 5
+from .source_admin import router as source_admin_router
