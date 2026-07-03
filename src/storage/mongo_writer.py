@@ -100,6 +100,17 @@ def ensure_indexes():
 # 写入 / 读取
 # ============================================================
 
+    # ---- Day 5 additions ----
+    try:
+        from storage.source_runs import ensure_indexes as _sr_idx
+        _sr_idx()
+    except Exception as _e:
+        logger.warning("source_runs index init failed: %s", _e)
+    try:
+        from storage.source_config import ensure_indexes as _sc_idx
+        _sc_idx()
+    except Exception as _e:
+        logger.warning("source_config index init failed: %s", _e)
 def _ensure_category_l1(item: dict) -> None:
     """确保 item 有 category_l1 字段;如果没有,从 category 归一化"""
     if not item.get("category_l1"):
