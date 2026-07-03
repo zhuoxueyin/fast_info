@@ -1,0 +1,38 @@
+# fastInfo Python 依赖(MVP 阶段)
+# 跑法: pip install -r requirements.txt
+# 推荐用虚拟环境: python -m venv .venv; .venv\Scripts\activate
+
+# ---- LLM 模型路由 ----
+httpx>=0.27
+structlog>=24.1
+
+# ---- API ----
+fastapi>=0.115
+uvicorn[standard]>=0.32
+
+# ---- 存储 / 缓存 ----
+redis>=5.0
+pymongo>=4.6
+motor>=3.4            # 异步 MongoDB 驱动
+lancedb>=0.13         # 向量检索(嵌入式)
+pyarrow>=15           # LanceDB 依赖
+
+# ---- Embedding ----
+sentence-transformers>=3.0
+# 第一次跑会自动下载 BAAI/bge-m3(~2.3GB),需要稳定的网络
+# 如果下载失败,可手动执行: huggingface-cli download BAAI/bge-m3
+
+# ---- 网页爬取 ----
+feedparser>=6.0
+trafilatura>=1.6
+beautifulsoup4>=4.12
+requests>=2.31
+playwright>=1.40      # 复杂 JS 渲染用,可选
+scrapy>=2.11          # 高级爬虫框架,可选
+
+# ---- 工具 / 测试 ----
+python-dotenv>=1.0
+pydantic>=2.5
+pytest>=8.0
+pytest-asyncio>=0.23
+rich>=13.7            # 美化 console 输出

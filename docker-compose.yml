@@ -1,0 +1,133 @@
+# fastInfo 本机 Docker 运行环境
+#
+# 启动核心服务:
+#   docker compose up -d --build
+#
+# 启动后台抓取/订阅调度:
+#   docker compose --profile workers up -d --build
+#
+# 访问:
+#   Web:    http://127.0.0.1:8080
+#   API:    http://127.0.0.1:8000
+#   Docs:   http://127.0.0.1:8080/docs/
+
+services:
+  mongo:
+    image: ${DOCKER_REGISTRY_PREFIX:-}mongo:8
+    container_name: fastinfo-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: ${DOCKER_REGISTRY_PREFIX:-}redis:7-alpine
+    container_name: fastinfo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "256mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+      - --save
+      - "60"
+      - "1000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      args:
+        DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
+    container_name: fastinfo-api
+    env_file:
+      - docker/env.docker.example
+    ports:
+      - "8000:8000"
+    volumes:
+      - api_data:/app/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
+    container_name: fastinfo-web
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  ingest_daemon:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      args:
+        DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
+    container_name: fastinfo-ingest
+    env_file:
+      - docker/env.docker.example
+    command: ["python", "scripts/ingest_daemon.py", "--interval", "1800", "--limit", "8"]
+    volumes:
+      - api_data:/app/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles:
+      - workers
+    restart: unless-stopped
+
+  subs_scheduler:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      args:
+        DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
+    container_name: fastinfo-subs-scheduler
+    env_file:
+      - docker/env.docker.example
+    command: ["python", "scripts/subs_scheduler.py", "--interval", "60"]
+    volumes:
+      - api_data:/app/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles:
+      - workers
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  redis_data:
+  api_data:

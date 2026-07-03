@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Node (前端预留)
+node_modules/
+frontend/dist/
+frontend/.vite/
+docs-site/.vitepress/cache/
+docs-site/.vitepress/dist/
+.pnpm-store/
+.next/
+
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# 数据与环境
+data/
+.env
+.env.local
+.env.*.local
+
+# 日志
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统
+Thumbs.db
+.DS_Store
