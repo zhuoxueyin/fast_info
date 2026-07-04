@@ -29,9 +29,21 @@ class Notifier(ABC):
     """推送渠道抽象基类"""
     name: str = ""
 
-    @abstractmethod
-    def send(self, user: dict, subject: str, content_html: str, items: list[dict]) -> bool:
-        """返回 True = 成功,False = 失败(不会抛异常)"""
+    def send(
+        self,
+        user: dict,
+        subject: str,
+        content_html: str,
+        items: list[dict],
+        *,
+        body_md: str | None = None,
+        body_html: str | None = None,
+        card: dict | None = None,
+    ) -> bool:
+        """返回 True = 成功,False = 失败(不会拋异常)
+        body_md / body_html / card 都是可选。具体渠道选抸需要的。
+        覆写时请传 **kwargs,默认 base 类只用 content_html 作为后备。
+        """
         ...
 
 
@@ -41,7 +53,9 @@ class Notifier(ABC):
 class EmailNotifier(Notifier):
     name = "email"
 
-    def send(self, user, subject, content_html, items):
+    def send(
+        self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
+    ):
         addr = user.get("email")
         if not addr:
             print(f"  [email] 用户 {user.get('username')} 没邮箱,跳过")
@@ -58,7 +72,8 @@ class EmailNotifier(Notifier):
             msg["From"] = formataddr(["fastInfo", smtp_user])
             msg["To"] = addr
             msg["Subject"] = subject
-            msg.attach(MIMEText(content_html, "html", "utf-8"))
+            email_body = body_html or content_html
+            msg.attach(MIMEText(email_body, "html", "utf-8"))
             with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as s:
                 s.login(smtp_user, smtp_pass)
                 s.sendmail(smtp_user, [addr], msg.as_string())
@@ -75,20 +90,26 @@ class EmailNotifier(Notifier):
 class FeishuNotifier(Notifier):
     name = "feishu"
 
-    def send(self, user, subject, content_html, items):
+    def send(
+        self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
+    ):
         webhook = user.get("feishu_webhook")
         if not webhook:
             return False
-        # 富文本卡片
-        payload = {
-            "msg_type": "interactive",
-            "card": {
-                "header": {"title": {"tag": "plain_text", "content": subject}, "template": "green"},
-                "elements": [
-                    {"tag": "div", "text": {"tag": "lark_md", "content": content_html[:2000]}}
-                ],
-            },
-        }
+        if card and "card" in card:
+            payload = {"msg_type": "interactive", "card": card["card"]}
+        elif card:
+            payload = {"msg_type": "interactive", "card": card}
+        else:
+            payload = {
+                "msg_type": "interactive",
+                "card": {
+                    "header": {"title": {"tag": "plain_text", "content": subject}, "template": "green"},
+                    "elements": [
+                        {"tag": "div", "text": {"tag": "lark_md", "content": (body_md or content_html)[:2000]}}
+                    ],
+                },
+            }
         return _post_webhook(webhook, payload, "feishu")
 
 
@@ -98,13 +119,16 @@ class FeishuNotifier(Notifier):
 class WechatWorkNotifier(Notifier):
     name = "wechat"
 
-    def send(self, user, subject, content_html, items):
+    def send(
+        self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
+    ):
         webhook = user.get("wechat_webhook")
         if not webhook:
             return False
+        body = body_md or content_html
         payload = {
             "msgtype": "markdown",
-            "markdown": {"content": f"## {subject}\n{content_html[:2000]}"},
+            "markdown": {"content": f"## {subject}\n{body[:4000]}"},
         }
         return _post_webhook(webhook, payload, "wechat")
 
@@ -115,7 +139,9 @@ class WechatWorkNotifier(Notifier):
 class WebhookNotifier(Notifier):
     name = "webhook"
 
-    def send(self, user, subject, content_html, items):
+    def send(
+        self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
+    ):
         url = user.get("webhook_url")
         if not url:
             return False
@@ -181,7 +207,9 @@ class FeishuDMNotifier(Notifier):
             print(f"  [feishu_dm] token err: {type(e).__name__}: {e}")
             return ""
 
-    def send(self, user, subject, content_html, items):
+    def send(
+        self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
+    ):
         open_id = user.get("feishu_open_id") or user.get("open_id") or ""
         if not open_id:
             print("  [feishu_dm] 未配 feishu_open_id,跳过")
@@ -234,15 +262,37 @@ def available_channels() -> list[str]:
     return list(_REGISTRY.keys())
 
 
-def send_all(user: dict, channels: list[str], subject: str, content_html: str, items: list[dict]) -> dict[str, bool]:
-    """并发往多个渠道推，返回每个渠道成功与否"""
-    out = {}
+def send_all(
+    user: dict,
+    channels: list[str],
+    subject: str,
+    content_html: str,
+    items: list[dict],
+    *,
+    body_md: str | None = None,
+    body_html: str | None = None,
+    card: dict | None = None,
+) -> dict[str, bool]:
+    """并发往多个渠道推，返回每个渠道成功与否。
+
+    body_md 用于通用 webhook / wechat(转 markdown)。
+    body_html 覆写底层 default 用于 email。
+    card 用于 feishu 通道interactive 模式(不传则 fallback content_html)。
+    """
+    out: dict[str, bool] = {}
     for ch in channels:
         n = get(ch)
         if n is None:
             out[ch] = False
             continue
-        out[ch] = n.send(user, subject, content_html, items)
+        try:
+            out[ch] = n.send(
+                user, subject, content_html, items,
+                body_md=body_md, body_html=body_html, card=card,
+            )
+        except Exception as e:
+            print(f"  [notifier] {ch} err: {type(e).__name__}: {str(e)[:120]}")
+            out[ch] = False
     return out
 
 

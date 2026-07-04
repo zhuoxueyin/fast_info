@@ -387,15 +387,19 @@ async def run_subscription(sub: dict) -> dict:
 async def _render_and_send(user_doc: dict, sub: dict, items: list, channels: list[str]):
     """渲染订阅消息 + 按 channels 多渠道推送(全部用 Notifier 抽象)"""
     from notifier import send_all
+    from .format_push import format_html, format_markdown, format_feishu_card, inbox_url_for
+    site_base = os.environ.get("FASTINFO_SITE_BASE", "")
+    inbox_url = inbox_url_for(site_base)
     title = f"[fastInfo] {sub.get('title', '订阅')} · {len(items)} 条新内容"
-    lines = [f"**{title}**\n"]
-    for i, it in enumerate(items[:10], 1):
-        lines.append(f"{i}. [{it.get('source', '?')}] [{it.get('category', '')}] {it.get('title', '')[:60]}")
-        if it.get("summary"):
-            lines.append(f"   {it['summary'][:150]}")
-        lines.append(f"   {it.get('url', '')}\n")
-    content = "\n".join(lines)
-    return send_all(user_doc, channels, title, content, items)
+    # 三种格式主体生成
+    body_html  = format_html(sub, items, inbox_url)
+    body_md    = format_markdown(sub, items, inbox_url)
+    card       = format_feishu_card(sub, items, inbox_url)
+    # 多渠道分发:
+    #   - inbox / email: body_html
+    #   - feishu / wechat / webhook: body_md (及其他渠道送 markdown)
+    #   - feishu_dm: card
+    return send_all(user_doc, channels, title, body_md, items, body_html=body_html, card=card)
 
 
 def run_subscription_sync(sub: dict) -> dict:
