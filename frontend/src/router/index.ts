@@ -9,6 +9,7 @@ const routes = [
   { path: '/register', component: () => import('@/pages/RegisterPage.vue'), name: 'register' },
   { path: '/me', component: () => import('@/pages/MePage.vue'), name: 'me', meta: { auth: true } },
   { path: '/me/inbox', component: () => import('@/pages/InboxPage.vue'), name: 'inbox', meta: { auth: true } },
+  { path: '/settings', component: () => import('@/pages/SettingsPage.vue'), name: 'settings', meta: { auth: true } },
   { path: '/subs/new', component: () => import('@/pages/NewSubPage.vue'), name: 'sub-new', meta: { auth: true } },
   { path: '/admin', component: () => import('@/pages/admin/AdminHome.vue'), name: 'admin', meta: { auth: true, admin: true } },
   { path: '/admin/tasks', component: () => import('@/pages/admin/TasksPage.vue'), name: 'admin-tasks', meta: { auth: true, admin: true } },

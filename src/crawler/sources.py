@@ -38,6 +38,29 @@ RSS_SOURCES = {
 
     # ----- 汽车 -----
     "autohome":  ("汽车之家",     "https://www.autohome.com.cn/rss/news.xml"),
+
+    # ----- Day 6 v0.3.0 新增(主流国内 + 国外补充) -----
+    "geekpark":  ("极客公园",     "https://www.geekpark.net/rss"),         # 主流科技深度
+    "tmtpost":   ("钛媒体",       "https://www.tmtpost.com/rss.xml"),       # TMT 行业深度
+    "jiqizhixin":("机器之心",    "https://www.jiqizhixin.com/rss"),        # AI 深度(与量子位互补)
+    "nbd":       ("每日经济新闻", "https://www.nbd.com.cn/rss"),             # 财经政经
+    "ars":       ("Ars Technica","https://feeds.arstechnica.com/arstechnica/index"),  # 国外 1
+    "reuters_zh":("Reuters 中文", "https://www.reutersagency.com/feed/?best-topics=top-news&post_type=best"),  # 国外 2
+
+    # ----- Day 7 v0.4.0 主流覆盖补源 -----
+    # AI 类目(4 个,不扭转 fastInfo 定位)
+    "anthropic": ("Anthropic 官方博客", "https://www.anthropic.com/news/rss.xml"),
+    "openai":    ("OpenAI 博客",         "https://openai.com/blog/rss.xml"),
+    "deepmind":  ("DeepMind Blog",       "https://deepmind.google/blog/rss.xml"),
+    "huggingface":("Hugging Face Blog",  "https://huggingface.co/blog/feed.xml"),
+    # 汽车类目(摆脱单点)
+    "diandong":  ("电动邦",              "https://www.diandong.com/rss"),
+    "chedongxi": ("车东西",              "https://www.chedongxi.com/rss"),
+    # 娱乐类目加热点
+    "weibo_hot": ("微博热搜",            "https://rsshub.app/weibo/search/hot"),
+    "douyin_hot":("抖音热榜",            "https://rsshub.app/douyin/hot"),
+    # 36氪深度/汽车(复用 URL 加分类)
+    # 已有 36kr 上加分类映射,不重复加
 }
 
 KOL_SOURCES = {
@@ -92,6 +115,19 @@ SOURCE_L1_DEFAULT = {
     "autohome": "汽车",
     "weibo:1887344341": "财经", "weibo:1643971635": "其他",
     "x:elonmusk": "科技", "x:sama": "AI",
+    # Day 6 v0.3.0 新增
+    "geekpark": "科技", "tmtpost": "科技", "jiqizhixin": "AI", "nbd": "财经",
+    "ars": "科技", "reuters_zh": "财经",  # 英文源后续走翻译
+    # Day 7 v0.4.0 新增
+    "anthropic": "AI", "openai": "AI", "deepmind": "AI", "huggingface": "AI",
+    "diandong": "汽车", "chedongxi": "汽车",
+    "weibo_hot": "娱乐", "douyin_hot": "娱乐",
+}
+
+SOURCE_LANG = {
+    "ars": "en", "reuters_zh": "en", "anthropic": "en", "openai": "en",
+    "deepmind": "en", "huggingface": "en",
+    # 其他都是中文(包含 reuters_zh 的标题中文版)
 }
 
 # 向后兼容别名
