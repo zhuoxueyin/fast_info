@@ -37,6 +37,30 @@
       </div>
     </section>
 
+    <!-- 🪜 临时话题快入口(AI 驱动) -->
+    <section class="mb-4">
+      <div class="bg-white border-2 border-emerald-200 rounded-xl p-4 shadow-sm">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-xl">🪜</span>
+          <span class="font-semibold text-slate-900">今天要关注什么?</span>
+          <n-tag size="small" :bordered="false" type="success">AI 驱动 · 24h 临时</n-tag>
+        </div>
+        <div class="flex gap-2">
+          <n-input
+            v-model:value="topicQuery"
+            placeholder="试用例:「世界杯」「AI 资讯」「火星探测」……"
+            size="medium"
+            :disabled="topicCreating"
+            @keyup.enter="createNowTopic"
+          >
+            <template #prefix><span class="text-slate-400">💭</span></template>
+          </n-input>
+          <n-button type="primary" size="medium" :loading="topicCreating" @click="createNowTopic">查询</n-button>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">例「世界杯」→ 24h 临时 dashboard 看内容;「AI 资讯」→ 看最近 AI 类目;「火星探测」→ 看最近相关事件。</p>
+      </div>
+    </section>
+
     <!-- L1 类目入口(顶部 tab) -->
     <section class="mb-3">
       <div class="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2">
@@ -128,8 +152,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
-import { NEmpty } from 'naive-ui'
-import { api } from '@/lib/api'
+import { useRouter } from 'vue-router'
+import { NEmpty, NInput, NButton, useMessage } from 'naive-ui'
+import { api, createTopicNow } from '@/lib/api'
 import type { Item, HotResponse, TodayResponse, BannerConfig } from '@/types/api'
 import ItemCard from '@/components/ItemCard.vue'
 
@@ -166,6 +191,28 @@ const sortBy = ref<'hot' | 'time'>('hot')
 const hotItems = ref<Item[]>([])
 const latestItems = ref<Item[]>([])
 const bannerReady = ref(false)
+
+// 🪜 临时话题 (AI 驱动)
+const topicQuery = ref('')
+const topicCreating = ref(false)
+const topicMsg = useMessage()
+const $router = useRouter()
+
+async function createNowTopic() {
+  const nl = topicQuery.value.trim()
+  if (!nl) return
+  topicCreating.value = true
+  try {
+    const r = await createTopicNow(nl, 12, 48)
+    const tid = r.tid
+    const isMobile = location.pathname.startsWith('/m')
+    $router.push(isMobile ? `/m/topic/${tid}` : `/topic/${tid}`)
+  } catch (e: any) {
+    topicMsg.error(e?.data?.detail || '创建临时话题失败')
+  } finally {
+    topicCreating.value = false
+  }
+}
 
 interface BannerGroup {
   category: string
@@ -263,6 +310,7 @@ watch(activeL1, (v) => {
   loadHot(v)
 })
 onMounted(() => {
+
   loadBanner()
   loadHot(activeL1.value)
   loadLatest()

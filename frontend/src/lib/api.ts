@@ -110,6 +110,14 @@ export async function createTopicNow(nl_query: string, max_items = 12, hours = 4
   return authFetch('/api/topics/now', { method: 'POST', body: { nl_query, max_items, hours } })
 }
 
+export async function getTopic(tid: string) {
+  return authFetch(`/api/topics/now/${tid}`)
+}
+
+export async function convertTopic(tid: string) {
+  return authFetch(`/api/topics/now/${tid}/convert`, { method: 'POST' })
+}
+
 // ============================================================
 // 推送配置 (Settings + Notifier) - Day 7 v0.4.0/v0.4.1
 // ============================================================
