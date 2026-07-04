@@ -48,7 +48,11 @@ def _check():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8000)
+    # 优先 CLI --port;其次 env(FASTINFO_API_PORT);最后本地默认 8000
+    parser.add_argument(
+        "--port", type=int,
+        default=int(os.environ.get("FASTINFO_API_PORT", "8000")),
+    )
     parser.add_argument("--no-ingest", action="store_true", help="跳过 ingest 真实抓取(避免烧 LLM 额度)")
     args = parser.parse_args()
 

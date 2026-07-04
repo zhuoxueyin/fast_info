@@ -7,7 +7,8 @@ os.environ['HTTPS_PROXY'] = ''
 import httpx
 import json
 
-base = 'http://127.0.0.1:8000'
+# 端口走 env(FASTINFO_API_PORT,默认 8000)
+base = f"http://127.0.0.1:{os.environ.get('FASTINFO_API_PORT', '8000')}"
 
 # 登录
 r = httpx.post(f'{base}/api/auth/login', json={"username": "admin", "password": "admin@2026"})

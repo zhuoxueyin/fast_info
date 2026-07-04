@@ -1,8 +1,13 @@
 """验证 admin login 是否真返 role=admin"""
+import os
 import httpx, json
 
-r = httpx.post("http://127.0.0.1:8000/api/auth/login", json={"username": "admin", "password": "admin@2026"}, timeout=5)
-print(f"login: {r.status_code}")
+# 端口走 env:FASTINFO_API_PORT(默认 8000 本地;Docker 预发设 18000)
+PORT = int(os.environ.get("FASTINFO_API_PORT", "8000"))
+BASE = f"http://127.0.0.1:{PORT}"
+
+r = httpx.post(f"{BASE}/api/auth/login", json={"username": "admin", "password": "admin@2026"}, timeout=5)
+print(f"login ({BASE}): {r.status_code}")
 d = r.json()
 print(f"  user = {json.dumps(d.get('user'), ensure_ascii=False)}")
 
@@ -10,12 +15,12 @@ print()
 # 用 token 查 me
 token = d.get("token")
 h = {"Authorization": f"Bearer {token}"}
-r = httpx.get("http://127.0.0.1:8000/api/auth/me", headers=h, timeout=5)
+r = httpx.get(f"{BASE}/api/auth/me", headers=h, timeout=5)
 print(f"GET /api/auth/me: {r.status_code}")
 print(f"  body = {json.dumps(r.json(), ensure_ascii=False)}")
 
 print()
-r = httpx.get("http://127.0.0.1:8000/api/admin/stats", headers=h, timeout=5)
+r = httpx.get(f"{BASE}/api/admin/stats", headers=h, timeout=5)
 print(f"GET /api/admin/stats: {r.status_code}")
 if r.status_code != 200:
     print(f"  body = {r.text[:200]}")

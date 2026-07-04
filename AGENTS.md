@@ -32,8 +32,9 @@
 | 源自动化 | huxiu 多镜像 fallback / nitter 5 mirror 轮询 / 微博 OpenAPI 脚手架 / 连续失败 ≥5 自动禁用 + 告警 |
 | 部署目标 | 阿里云 ECS 2C2G(~¥30/月) |
 | 代码规模 | `src/` 9 包(含 `notifier/` + `taxonomy.py` + `crawler/collectors.py`)· `scripts/` 15 个 |
+| 端口标准化 | 本地 L-* (8000/8080) + Docker S-* (18000/18080) — 见 **`docs/ports-分配方案.md`** |
 
-详细里程碑:**`docs/day1-deliverable.md`** / **`docs/day2-deliverable.md`** / **`docs/day3-deliverable.md`** / **`docs/day4-deliverable.md`**。
+详细里程碑:**`docs/day1-deliverable.md`** / **`docs/day2-deliverable.md`** / **`docs/day3-deliverable.md`** / **`docs/day4-deliverable.md`** / **`docs/ports-分配方案.md`**。
 
 ---
 
@@ -232,25 +233,30 @@ fast_info/                                              ← 项目根
 
 | 服务 | Windows 访问 | 容器内部访问 | 说明 |
 |---|---|---|---|
-| Web + Nginx | `http://127.0.0.1:8080/` | `web:80` | 用户主入口 |
-| API | `http://127.0.0.1:8000` | `api:8000` | 也可经 Web `/api/*` 反代 |
-| Docs | `http://127.0.0.1:8080/docs/` | `web:80/docs/` | Docker 内置静态文档 |
-| Swagger | `http://127.0.0.1:8080/swagger` | `api:8000/docs` | Nginx 反代到 API |
-| MongoDB | `mongodb://127.0.0.1:27018` | `mongodb://mongo:27017` | 宿主机用 27018,避开本机 27017 |
-| Redis | `redis://127.0.0.1:6379` | `redis://redis:6379` | 如本机已有 Redis,改 `FASTINFO_REDIS_PORT` |
+| Web + Nginx | `http://127.0.0.1:18080/` | `web:80` | 用户主入口(**S-Web**,5 位数) |
+| API | `http://127.0.0.1:18000` | `api:8000` | 直连,调试用(**S-API**) |
+| Docs | `http://127.0.0.1:18080/docs/` | `web:80/docs/` | Docker 内置静态文档 |
+| Swagger | `http://127.0.0.1:18080/swagger` 或 `http://127.0.0.1:18000/docs` | `api:8000/docs` | Nginx 反代到 API |
+| MongoDB | `mongodb://127.0.0.1:27018` | `mongodb://mongo:27017` | 宿主机 +1,避开本机 27017 |
+| Redis | `redis://127.0.0.1:6380` | `redis://redis:6379` | 宿主机 +1,避开本机 6379 |
 
-⚠️ 本地开发和 Docker 预发布默认都会占用 `8000`(API)和 `6379`(Redis)。不要同时跑两套默认端口;如需并行,启动 Docker 前改宿主机端口:
+> 📌 **2026-07-04 起端口标准化**:本地 + Docker 用不同段位,**可以同时跑**不冲突。
+> 完整对照表见 **`docs/ports-分配方案.md`**(本地 L-* 用 8000/5173,Docker S-* 用 18000/18080)。
+
+如需自定义端口:
 
 ```powershell
-$env:FASTINFO_WEB_PORT = "18080"
-$env:FASTINFO_API_PORT = "18000"
+$env:FASTINFO_WEB_PORT = "28080"
+$env:FASTINFO_API_PORT = "28000"
 $env:FASTINFO_MONGO_PORT = "37018"
-$env:FASTINFO_REDIS_PORT = "16379"
+$env:FASTINFO_REDIS_PORT = "26380"
 $env:DOCKER_REGISTRY_PREFIX = "docker.m.daocloud.io/library/"
 docker compose up -d --build
 ```
 
 ### 5.3 本地开发一键启动
+
+> 📌 **2026-07-04 起改用 dotenv + 根 .env 单文件方案**,不再每个 key 单独 `$env:...=...`。
 
 ```powershell
 # 1) 克隆 / 进入项目
@@ -260,14 +266,13 @@ cd D:\WORK\trae\fast_info
 . scripts\activate.ps1
 # Linux: source scripts/activate.sh
 
-# 3) 起 Redis 容器(如果没起)
-docker compose up -d redis
+# 3) 复制 .env.example → .env 并填入真实 key(只需做一次)
+copy .env.example .env
+#    编辑 .env,填 MMX_API_KEY / KIMI_API_KEY / FASTINFO_SECRET
+#    .env 已在 .gitignore 里,不会被 commit
 
-# 4) 设环境变量
-$env:MONGO_URL = "mongodb://127.0.0.1:27017"
-$env:REDIS_URL = "redis://127.0.0.1:6379"
-$env:MMX_API_KEY = "sk-..."    # 必填
-$env:KIMI_API_KEY = "sk-..."   # 选填,无则降级到单 key
+# 4) 起 Redis 容器(如果没起)
+docker compose up -d redis
 
 # 5) 初始化 Mongo 索引(首次)
 python -c "import sys; sys.path.insert(0,'src'); from storage.mongo_writer import ensure_indexes; ensure_indexes()"
@@ -280,37 +285,69 @@ python scripts/ingest_daemon.py --once
 
 # 8) 启 CLI
 python fastinfo.py --help
+
+# 9) 启 API
+python scripts/api_server.py
+#    访问 http://127.0.0.1:8000/docs
 ```
+
+**dotenv 加载规则**:
+- `src/_env.py` 在所有 entrypoint 脚本顶部自动加载 `项目根/.env`
+- `override=False`: shell 已 export 的 env 优先(便于临时调试)
+- 本地开发用 `项目根/.env` 一份;Docker 用 `docker/env.docker.local` 覆盖差异
 
 ### 5.4 Docker 编译 + 部署(本机预发布)
 
 适用场景:更新 day5 分支代码后,在本机 Docker 里按接近云环境的方式重新编译、部署、验收。
 
+> 📌 **2026-07-04 起 5 个 service 一把梭**:`docker compose up -d` 默认会拉起 mongo / redis / api / web / **ingest_daemon** / **subs_scheduler**(6 个)。
+> 后台 worker 不再藏在 `--profile workers` 里,避免新人踩坑"起了 docker 但没数据"。
+
 ```powershell
 cd D:\WORK\trae\fast_info
 
-# 1) 如需拉 day5 分支最新代码(手工确认后再执行)
+# 1) 如需拉最新代码(手工确认后再执行)
 git switch day5
 git pull
 
-# 2) 国内网络建议加镜像前缀
+# 2) 准备两份 env 文件(每个环境只需做一次)
+#    a. 根 .env: 共享配置(API Key / SECRET / SMTP 等)
+copy .env.example .env
+#       编辑 .env 填入真实 key
+#    b. docker/env.docker.local: Docker 差异值(容器内服务地址)
+copy docker\env.docker.local.example docker\env.docker.local
+#       (默认模板就能用,无需改)
+
+# 3) 国内网络建议加镜像前缀
 $env:DOCKER_REGISTRY_PREFIX = "docker.m.daocloud.io/library/"
 
-# 3) 编译 + 部署核心服务(Mongo / Redis / API / Web / Docs)
+# 4) 编译 + 部署全部 6 个 service
 docker compose up -d --build
 
-# 4) 验证服务
+# 5) 验证服务
 docker compose ps
-curl.exe http://127.0.0.1:8080/healthz
-curl.exe http://127.0.0.1:8080/openapi.json
+curl.exe http://127.0.0.1:18080/healthz        # 走 Nginx
+curl.exe http://127.0.0.1:18000/healthz        # 直连 API
 ```
+
+**容器内 env 加载优先级**(高→低):
+1. `docker-compose.yml` 的 `env_file: docker/env.docker.local`(本机覆盖)
+2. `./.env` 通过 volume 挂到 `/app/.env`(共享配置)
+3. shell 环境变量
+4. 代码默认值
+
+**关键变化**:
+- ✅ `docker/env.docker.local` 已 gitignore,误填 key 也不会 commit
+- ✅ 共享 key(API Key / SECRET)只填一次,本地 + Docker 通吃
+- ✅ ingest_daemon / subs_scheduler 默认随主流程一起起,30min 抓取 / 60s 调度自动运行
+- ✅ **端口标准化**:Docker 用 18000/18080,本地用 8000/8080,**可同时跑**不冲突(详见 `docs/ports-分配方案.md`)
 
 浏览器验收:
 
 ```text
-Web:     http://127.0.0.1:8080/
-Docs:    http://127.0.0.1:8080/docs/
-Swagger: http://127.0.0.1:8080/swagger
+Web:     http://127.0.0.1:18080/        (S-Web,推荐走 Nginx)
+Docs:    http://127.0.0.1:18080/docs/
+Swagger: http://127.0.0.1:18000/docs   (S-API 直连)
 Admin:   admin / admin@2026
 ```
 

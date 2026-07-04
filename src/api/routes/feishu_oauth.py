@@ -11,7 +11,7 @@
 5. 把 feishu_open_id / feishu_name / feishu_union_id 写到 user 文档
 
 需要的 App scope: contact:user.id:basic(读用户基本信息)
-需要的 App redirect_uri: 跟 FEISHU_REDIRECT_URI env 一致(默认 http://127.0.0.1:8000/api/auth/feishu/callback)
+需要的 App redirect_uri: 跟 FEISHU_REDIRECT_URI env 一致(默认 http://127.0.0.1:{FASTINFO_API_PORT}/api/auth/feishu/callback,本地 8000 / Docker 预发 18000)
 """
 from __future__ import annotations
 import secrets
@@ -38,9 +38,11 @@ def _get_app_credentials() -> tuple[str, str, str]:
     """返 (app_id, app_secret, redirect_uri)。任一缺失抛 503。"""
     app_id = os.environ.get("LARK_APP_ID", "")
     app_secret = os.environ.get("LARK_APP_SECRET", "")
+    # 默认 redirect_uri 用 env 里的端口(FASTINFO_API_PORT),让本地/Docker 自动对齐
+    default_port = os.environ.get("FASTINFO_API_PORT", "8000")
     redirect_uri = os.environ.get(
         "FEISHU_REDIRECT_URI",
-        "http://127.0.0.1:8000/api/auth/feishu/callback",
+        f"http://127.0.0.1:{default_port}/api/auth/feishu/callback",
     )
     if not app_id or not app_secret:
         raise HTTPException(503, "LARK_APP_ID/LARK_APP_SECRET 未配置(管理员需在 fastInfo 启动环境设)")
