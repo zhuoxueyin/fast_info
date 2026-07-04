@@ -35,11 +35,14 @@ from storage.mongo_writer import ensure_indexes
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时:确保索引
+    # 启动时:确保索引 + 临时话题 TTL
     try:
         ensure_indexes()
+        from storage.temp_topics import setup_indexes
+        import asyncio
+        asyncio.run(setup_indexes())
     except Exception as e:
-        print(f"  ✗ ensure_indexes failed: {e}")
+        print(f"  ✗ startup hook failed: {e}")
     yield
 
 

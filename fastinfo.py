@@ -273,11 +273,12 @@ async def _run_ingest_async(new_items: list):
     sem = asyncio.Semaphore(3)
     completed = 0
     failed = 0
+    translated = 0
 
     import re as _re
     import json as _json
     async def one(item):
-        nonlocal completed, failed
+        nonlocal completed, failed, translated
         async with sem:
             messages = [
                 {"role": "system", "content": "中文资讯编辑。生成 120-180 字摘要 + 2-4 要点 + 分类 + 相关度。严格 JSON 输出,无 markdown 包裹。"},
@@ -305,17 +306,30 @@ async def _run_ingest_async(new_items: list):
                 "summary_model": result.get("model", "?"),
                 "summary_at": datetime.now(timezone.utc).isoformat(),
             }
+            # Day 6 v0.3.0: 英文源自动翻译为 title_zh / summary_zh
+            try:
+                from llm.translate import detect_lang, maybe_translate_item
+                title_lang = detect_lang(item.title)
+                summary_lang = detect_lang(parsed.get("summary", ""))
+                if title_lang == "en" or summary_lang == "en":
+                    doc = await maybe_translate_item(doc)
+                    if doc.get("title_zh"):
+                        translated += 1
+            except Exception as e:
+                print(f"  ⚠ translate skipped: {e}")
+
             try:
                 await upsert_item_async(doc)
                 completed += 1
-                print(f"  ✓ [{result.get('model','?')[:14]:<14}] {item.title[:50]} ({parsed.get('category','其他')})")
+                zh_mark = f" [译→{doc.get('title_zh','')[:15]}]" if doc.get("title_zh") else ""
+                print(f"  ✓ [{result.get('model','?')[:14]:<14}] {item.title[:40]} ({parsed.get('category','其他')}){zh_mark}")
             except Exception as e:
                 failed += 1
                 print(f"  ✗ mongo: {e}")
 
     await asyncio.gather(*[one(it) for it in new_items])
     await registry.aclose()
-    print(f"  ✓ 完成 {completed}/{len(new_items)} 条,fail {failed}")
+    print(f"  ✓ 完成 {completed}/{len(new_items)} 条,fail {failed},译 {translated} 条")
 
 
 # ============================================================
@@ -398,8 +412,117 @@ def main():
     p.add_argument("--all", action="store_true", help="清空后重抓")
     p.set_defaults(func=cmd_ingest)
 
+    # notify test(Day 7 v0.4.0)
+    p = sub.add_parser("notify", help="推送通道测试")
+    p.add_argument("action", choices=["test", "test-all"], help="test <channel> 或 test-all")
+    p.add_argument("--channel", help="test <channel> 指定渠道")
+    p.set_defaults(func=cmd_notify)
+
+    # topic - 创建临时话题(Day 6 v0.3.0)
+    p = sub.add_parser("topic", help="创建临时话题(NL→ 24h 临时 workspace)")
+    p.add_argument("nl", help="自然语言描述,如 '世界杯'")
+    p.add_argument("--max-items", type=int, default=12)
+    p.add_argument("--hours", type=int, default=48)
+    p.set_defaults(func=cmd_topic)
+
+    # topic 子命令: list / convert
+    tp = sub.add_parser("topic-mgr", help="管理临时话题")
+    tp_sub = tp.add_subparsers(dest="topic_cmd", required=True)
+
+    tp2 = tp_sub.add_parser("list", help="列出我的临时话题")
+    tp2.add_argument("--all", action="store_true", help="含已过期")
+    tp2.set_defaults(func=cmd_topic_list)
+
+    tp2 = tp_sub.add_parser("convert", help="转长期订阅")
+    tp2.add_argument("tid")
+    tp2.set_defaults(func=cmd_topic_convert)
+
     args = parser.parse_args()
     args.func(args)
+
+
+# ============================================================
+# 临时话题(Day 6 v0.3.0)
+# ============================================================
+
+def cmd_notify(args):
+    """推送通道测试(Day 7 v0.4.0)"""
+    from notifier.test import test_channel, test_all
+    from auth import current_user
+    user = current_user() or {"username": "anonymous"}
+    if args.action == "test-all":
+        print("  测试全部 5 渠道 ...")
+        out = test_all(user=user)
+        for ch, r in out.items():
+            mark = "✓" if r["ok"] else "✗"
+            print(f"  {mark} {ch:<10} {r['message']}")
+        ok_n = sum(1 for r in out.values() if r["ok"])
+        print(f"  {ok_n}/{len(out)} 渠道可发")
+        return
+    # test 单渠道
+    ch = args.channel
+    if not ch:
+        print("  ✗ 请指定 --channel <email|feishu|wechat|webhook>")
+        return
+    print(f"  测试 {ch} ...")
+    r = test_channel(ch, user=user)
+    mark = "✓" if r["ok"] else "✗"
+    print(f"  {mark} {ch}: {r['message']}")
+
+
+def cmd_topic(args):
+    """创建临时话题:NL → 24h 临时 workspace,不建订阅"""
+    from auth import current_user
+    from storage.temp_topics import run_create_topic_now
+    user = current_user()
+    user_id = user["id"] if user else "anonymous"
+    nl = args.nl
+    print(f"  创建临时话题: {nl}")
+    try:
+        result = run_create_topic_now(nl, user_id=user_id, max_items=args.max_items, hours=args.hours)
+        doc = result["doc"]
+        items = result["items"]
+        parsed = result["parsed"]
+        print(f"  ✓ 临时话题 tid={doc['tid']}")
+        print(f"    标题: {parsed.get('title')}")
+        print(f"    解析: keywords={parsed.get('keywords', [])[:5]}")
+        print(f"    命中: {len(items)} 条(总 {doc['item_count']})")
+        for i, it in enumerate(items[:5], 1):
+            print(f"    {i}. {it.get('title', '')[:55]}")
+        print(f"    过期: {doc['expires_at'][:16]} (24h TTL)")
+        print(f"    转订阅: python fastinfo.py topic-mgr convert {doc['tid']}")
+    except Exception as e:
+        print(f"  ✗ {type(e).__name__}: {e}")
+
+
+def cmd_topic_list(args):
+    from auth import current_user
+    from storage.temp_topics import list_user_topics
+    user = current_user()
+    user_id = user["id"] if user else "anonymous"
+    docs = list_user_topics(user_id=user_id, active_only=not args.all)
+    if not docs:
+        print("  (无临时话题)")
+        return
+    for d in docs:
+        tid = d.get("tid")
+        title = d.get("parsed", {}).get("title", "")[:20]
+        items = d.get("item_count", 0)
+        exp = (d.get("expires_at") or "")[:16]
+        sub = d.get("converted_to_sub_id") or "-"
+        print(f"  {tid:<10} | {title:<20} | items={items:<3} | exp={exp} | sub={sub}")
+
+
+def cmd_topic_convert(args):
+    from auth import current_user
+    from storage.temp_topics import convert_topic_to_sub
+    user = current_user()
+    user_id = user["id"] if user else "anonymous"
+    sub_id = convert_topic_to_sub(args.tid, user_id=user_id)
+    if sub_id:
+        print(f"  ✓ 转订阅成功: sub_id={sub_id}")
+    else:
+        print(f"  ✗ 转换失败(话题不存在或不属于您)")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 PATCH /api/subs/{id} (Day 4)
 """
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel
 from typing import Optional
 
@@ -126,6 +126,59 @@ async def patch_my_subscription(sub_id: str, req: SubscribePatch, user: dict = D
         get_db()["subscriptions"].update_one({"_id": ObjectId(sub_id)}, {"$set": update})
     sub = get_subscription(sub_id)
     return _to_view(sub)
+
+
+@router.post("/subs/{sub_id}/nl-patch")
+async def nl_patch_my_subscription(
+    sub_id: str,
+    body: dict = Body(...),
+    user: dict = Depends(require_user),
+):
+    """Day 6 v0.3.0:对话式改订阅(NL → 字段 delta)"""
+    sub = get_subscription(sub_id)
+    if not sub:
+        raise HTTPException(404, "订阅不存在")
+    if sub.get("user_id") != user["id"] and user.get("role") != "admin":
+        raise HTTPException(403, "非本人订阅,无权操作")
+    nl_command = body.get("nl_command") or ""
+    if not nl_command.strip():
+        raise HTTPException(400, "nl_command 不能为空")
+    from subscription.nl_patch import parse_nl_patch
+    delta = await parse_nl_patch(nl_command, sub)
+    if not delta:
+        return {"delta": {}, "applied": [], "sub_id": sub_id, "message": "no fields to update"}
+    # 字段类型校验 + 清洗
+    update: dict = {}
+    for k, v in delta.items():
+        if k in {"max_items", "interval_min"}:
+            try:
+                update[k] = int(v)
+            except (TypeError, ValueError):
+                continue
+        elif k == "is_active":
+            update[k] = bool(v)
+        elif k in {"channels", "categories_l1", "categories_l2", "keywords"}:
+            if isinstance(v, list):
+                update[k] = [str(x).strip() for x in v if x]
+            elif isinstance(v, str):
+                update[k] = [s.strip() for s in v.split(",") if s.strip()]
+        else:
+            update[k] = v
+    if not update:
+        return {"delta": delta, "applied": [], "sub_id": sub_id}
+    # 写库 + 重算 next_run
+    from datetime import datetime, timezone
+    from storage.mongo_writer import get_db
+    from bson import ObjectId
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if "cron_expr" in update:
+        try:
+            from subscription import _next_run_simple
+            update["next_run_at"] = _next_run_simple(update["cron_expr"], datetime.now(timezone.utc)).isoformat()
+        except Exception:
+            pass
+    get_db()["subscriptions"].update_one({"_id": ObjectId(sub_id)}, {"$set": update})
+    return {"delta": delta, "applied": list(update.keys()), "sub_id": sub_id}
 
 
 @router.delete("/subs/{sub_id}")

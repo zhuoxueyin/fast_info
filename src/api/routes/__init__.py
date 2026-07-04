@@ -14,7 +14,13 @@ from fastapi import FastAPI
 from . import (
     auth, hot, ingest, items, search, stats, subs, today,
     banner, inbox, categories, admin,  # Day 3 新增
+    topics,  # Day 6: 临时话题
+    settings,  # Day 7 v0.4.0: 用户推送配置 + notifier test
+    feishu_oauth,  # Day 7 v0.4.1: 飞书 OAuth 单聊绑定
 )  # noqa: F401
+
+# Day 5 源管理
+from .source_admin import router as source_admin_router
 
 
 def register_routes(app: FastAPI) -> None:
@@ -32,6 +38,11 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(inbox.router, prefix="/api")
     app.include_router(categories.router, prefix="/api")
     app.include_router(admin.router, prefix="/api")
-
-# Day 5
-from .source_admin import router as source_admin_router
+    # Day 5 源管理(之前漏了注册,Day 6 修)
+    app.include_router(source_admin_router, prefix="/api")
+    # Day 6 临时话题
+    app.include_router(topics.router, prefix="/api")
+    # Day 7 用户 settings + notifier test
+    app.include_router(settings.router, prefix="/api")
+    # Day 7 v0.4.1 飞书 OAuth 单聊绑定(无需 /api 前缀,prefix 内已含 /auth/feishu)
+    app.include_router(feishu_oauth.router, prefix="/api")

@@ -1,7 +1,6 @@
-"""Day 5 · 源管理 admin API
+"""Day 5 · 源管理 admin API (Day 6 v0.3.0 加鉴权 require_admin)
 
-公开路由(Base /api/admin/sources/),鉴权由前端页面层控制。
-生产环境应加上 Bearer + role=="admin" 验证。
+所有 router 都已加 Depends(require_admin)。
 """
 from __future__ import annotations
 import asyncio
@@ -9,12 +8,13 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi import APIRouter, HTTPException, Query, Body, Depends
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from api.deps_admin import require_admin
 from storage.source_config import (
     list_sources, get_source, upsert_source, delete_source, toggle_source,
 )
@@ -23,13 +23,14 @@ from storage.source_runs import (
 )
 
 
-router = APIRouter(prefix="/api/admin/sources", tags=["admin:sources"])
+router = APIRouter(prefix="/admin/sources", tags=["admin:sources"])
 
 
 @router.get("")
 async def list_all(
     l1: Optional[str] = Query(None),
     active_only: bool = Query(False),
+    user: dict = Depends(require_admin),
 ):
     """GET /api/admin/sources - 列出所有源"""
     return {
@@ -39,7 +40,10 @@ async def list_all(
 
 
 @router.get("/health/summary")
-async def health_summary(window_days: int = Query(1, ge=1, le=30)):
+async def health_summary(
+    window_days: int = Query(1, ge=1, le=30),
+    user: dict = Depends(require_admin),
+):
     """全平台健康度 + 启停状态"""
     rows = get_overall_health(window_days=window_days)
     return {
@@ -52,7 +56,10 @@ async def health_summary(window_days: int = Query(1, ge=1, le=30)):
 
 
 @router.get("/{source_id}")
-async def show_one(source_id: str):
+async def show_one(
+    source_id: str,
+    user: dict = Depends(require_admin),
+):
     s = get_source(source_id)
     if not s:
         raise HTTPException(status_code=404, detail=f"{source_id} not found")
@@ -60,7 +67,10 @@ async def show_one(source_id: str):
 
 
 @router.post("")
-async def create_source(body: dict = Body(...)):
+async def create_source(
+    body: dict = Body(...),
+    user: dict = Depends(require_admin),
+):
     """POST /api/admin/sources - 新建"""
     sid = body.get("source_id")
     if not sid:
@@ -76,7 +86,11 @@ async def create_source(body: dict = Body(...)):
 
 
 @router.patch("/{source_id}")
-async def update_one(source_id: str, body: dict = Body(...)):
+async def update_one(
+    source_id: str,
+    body: dict = Body(...),
+    user: dict = Depends(require_admin),
+):
     """PATCH /api/admin/sources/{id} - 改任意字段"""
     s = get_source(source_id)
     if not s:
@@ -88,7 +102,11 @@ async def update_one(source_id: str, body: dict = Body(...)):
 
 
 @router.delete("/{source_id}")
-async def remove_one(source_id: str, hard: bool = Query(False)):
+async def remove_one(
+    source_id: str,
+    hard: bool = Query(False),
+    user: dict = Depends(require_admin),
+):
     """DELETE /api/admin/sources/{id} - 软删(is_active=false),hard=true 真删"""
     s = get_source(source_id)
     if not s:
@@ -98,7 +116,10 @@ async def remove_one(source_id: str, hard: bool = Query(False)):
 
 
 @router.post("/{source_id}/toggle")
-async def toggle_active(source_id: str):
+async def toggle_active(
+    source_id: str,
+    user: dict = Depends(require_admin),
+):
     """启停切换"""
     s = get_source(source_id)
     if not s:
@@ -108,7 +129,11 @@ async def toggle_active(source_id: str):
 
 
 @router.post("/{source_id}/test")
-async def test_one(source_id: str, limit: int = Query(5, ge=1, le=30)):
+async def test_one(
+    source_id: str,
+    limit: int = Query(5, ge=1, le=30),
+    user: dict = Depends(require_admin),
+):
     """手动试抓一次(不入库),返回采样"""
     from crawler.collectors import (
         fetch_rss_with_fallback, fetch_x_user_multi, fetch_weibo_user,
@@ -118,16 +143,16 @@ async def test_one(source_id: str, limit: int = Query(5, ge=1, le=30)):
     from crawler.mirrors import get_huxiu_urls
     import httpx
     from crawler.rss_collector import USER_AGENT
-    
+
     s = get_source(source_id)
     if not s:
         raise HTTPException(status_code=404, detail=f"{source_id} not found")
-    
+
     started = time.monotonic()
     items = []
     error: Optional[str] = None
     status = "ok"
-    
+
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(15.0, connect=5.0),
         headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, */*"},
@@ -153,14 +178,14 @@ async def test_one(source_id: str, limit: int = Query(5, ge=1, le=30)):
                                              s.get("platform_config"))
             else:
                 raise ValueError(f"unsupported kind: {kind}")
-            
+
             if not items:
                 status = "partial"
                 error = "empty"
         except Exception as e:
             status = "fail"
             error = f"{type(e).__name__}: {str(e)[:200]}"
-    
+
     duration_ms = int((time.monotonic() - started) * 1000)
     return {
         "ok": status in ("ok", "partial"),
@@ -181,7 +206,11 @@ async def test_one(source_id: str, limit: int = Query(5, ge=1, le=30)):
 
 
 @router.get("/{source_id}/metrics")
-async def metrics_one(source_id: str, window_days: int = Query(7, ge=1, le=30)):
+async def metrics_one(
+    source_id: str,
+    window_days: int = Query(7, ge=1, le=30),
+    user: dict = Depends(require_admin),
+):
     """单源健康度时间窗(1d / 7d / 30d)"""
     s = get_source(source_id)
     if not s:
@@ -190,7 +219,11 @@ async def metrics_one(source_id: str, window_days: int = Query(7, ge=1, le=30)):
 
 
 @router.get("/{source_id}/runs")
-async def runs_one(source_id: str, limit: int = Query(50, ge=1, le=200)):
+async def runs_one(
+    source_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    user: dict = Depends(require_admin),
+):
     """单源 source_runs 历史"""
     return {
         "source_id": source_id,
@@ -199,7 +232,7 @@ async def runs_one(source_id: str, limit: int = Query(50, ge=1, le=200)):
 
 
 # ============================================================
-# Day 5 · system_alerts 接口
+# Day 5 · system_alerts 接口(也加鉴权)
 # ============================================================
 
 @router.get("/alerts/list")
@@ -207,6 +240,7 @@ async def list_alerts(
     limit: int = Query(50, ge=1, le=200),
     severity: Optional[str] = Query(None),
     unack_only: bool = Query(False),
+    user: dict = Depends(require_admin),
 ):
     """列出 system_alerts,默认 50 条最新"""
     db_d = __import__("storage.mongo_writer", fromlist=["get_db"]).get_db()
@@ -224,7 +258,10 @@ async def list_alerts(
 
 
 @router.post("/alerts/{alert_id}/ack")
-async def ack_alert(alert_id: str):
+async def ack_alert(
+    alert_id: str,
+    user: dict = Depends(require_admin),
+):
     """标记告警已确认"""
     from bson import ObjectId
     db_d = __import__("storage.mongo_writer", fromlist=["get_db"]).get_db()
