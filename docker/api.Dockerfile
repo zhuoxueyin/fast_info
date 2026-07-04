@@ -21,12 +21,15 @@ COPY scripts ./scripts
 COPY examples ./examples
 COPY fastinfo.py ./fastinfo.py
 COPY config ./config
+COPY docker/api-entrypoint.sh ./docker/api-entrypoint.sh
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data \
+    && chmod +x /app/docker/api-entrypoint.sh
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
     CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
 
+ENTRYPOINT ["/app/docker/api-entrypoint.sh"]
 CMD ["python", "scripts/api_server.py", "--host", "0.0.0.0", "--port", "8000"]

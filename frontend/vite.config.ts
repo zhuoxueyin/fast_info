@@ -17,9 +17,25 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      // 只代理 /api 到后端;文档站走 :5174 独立访问(顶部 nav 直跳)
       '/api': {
         target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/swagger': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        rewrite: () => '/docs',
+      },
+      '/redoc': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/openapi.json': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/docs': {
+        target: 'http://127.0.0.1:5174',
         changeOrigin: true,
       },
     },

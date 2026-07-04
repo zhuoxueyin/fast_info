@@ -30,10 +30,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from storage.mongo_writer import get_sync_client
+from storage.mongo_writer import DEFAULT_DB, get_sync_client
 
 
-DEFAULT_DB = "fastinfo"
 SESSION_FILE = Path(__file__).parent.parent / "data" / ".session.json"
 SECRET = os.environ.get("FASTINFO_SECRET", "dev-only-not-secure-change-in-prod")
 

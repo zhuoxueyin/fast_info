@@ -49,6 +49,7 @@ docker compose up -d --build
 # Web:  http://127.0.0.1:8080
 # API:  http://127.0.0.1:8000
 # Docs: http://127.0.0.1:8080/docs/
+# Swagger: http://127.0.0.1:8080/swagger
 
 # 健康检查
 curl http://127.0.0.1:8080/healthz
@@ -57,6 +58,23 @@ curl http://127.0.0.1:8000/healthz
 
 默认 Docker 环境使用内置 MongoDB(`fastinfo-mongo`)和 Redis(`fastinfo-redis`)。
 Mongo 映射到宿主机 `27018`,避免和本机已有 `27017` 冲突。
+首次启动会自动初始化管理集合,并创建本地管理员账号:
+
+```text
+username: admin
+password: admin@2026
+```
+
+如需和其他项目并行,Compose 会按项目名隔离容器 / 网络 / volume,但宿主机端口是全局的。
+端口冲突时先改宿主机端口再启动:
+
+```powershell
+$env:FASTINFO_WEB_PORT = "18080"
+$env:FASTINFO_API_PORT = "18000"
+$env:FASTINFO_MONGO_PORT = "37018"
+$env:FASTINFO_REDIS_PORT = "16379"
+docker compose up -d --build
+```
 
 如需启用后台抓取与订阅调度:
 

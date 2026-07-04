@@ -1,6 +1,6 @@
 # AGENTS.md · fastInfo 项目入口
 
-> 面向 AI agent / 后续接手者 / 自己回看 -- **从 0 到产出,这份文档讲清一切。**
+> 面向 AI agent / 后续接手者 / 自己回看 —— **从 0 到产出,这份文档讲清一切。**
 >
 > 📌 **本文件必须随 day-end 迭代回填**(详见末尾 §13 「更新约定」)。
 >
@@ -10,37 +10,28 @@
 
 ## 0. 项目一句话
 
-**fastInfo = AI 驱动的资讯情报中枢** -- 用户用自然语言对话告诉系统"想看什么",AI 从统一资讯池里为他持续订阅 / 临时生成 / 主动推荐。
-
-**三个参照面**:
-1. **差异化 vs 传统资讯**(微博/头条/今日头条):那些人**主动推荐 / 用户主动浏览**;我们**AI 驱动 + 用户 NL 自定义 + AI 协同分发** -- 主动权反转。
-2. **差异化 vs 传统 RSS 工具**(Feedly/Inoreader):那些人**手动选源 + 关键词过滤**;我们**NL 对话一句话建订阅**,无需懂 RSS 协议。
-3. **差异化 vs 算法推荐**(抖音/小红书即刻 feed):那些人**被动接信息流**;我们**主动表达 + 持续精确供给**。
-
-**关键场景**:用户说"今天想关注世界杯" → AI 从统一资讯池为他聚合 + 摘要 + 推送(世界杯例子可以是临时兴趣,不必建长期 sub)。
-
-**边界**:BYOK(自带 LLM key)+ 本地优先 + 零数据外传。
+**fastInfo = 资讯中心 + AI 情报中枢** — 把分散的 RSS、AI 媒体、热搜用 LLM 摘要 / 解读聚合,按用户**个人订阅**精准推送,BYOK + 本地优先 + 零数据外传。
 
 ---
 
-## 1. 现状速览(2026-07-04,Day 7 ✅)
+## 1. 现状速览(2026-07-03,Day 4 ✅)
 
 | 维度 | 当前 |
 |---|---|
-| 阶段 | **MVP7 · 主流覆盖 + 触达端到端** (Day 7 v0.4.0 完成,2026-07-04) |
-| 最新里程碑 | Day 7:9 类目补源(AI 4/汽车 2/娱乐 2)+ 推送全链路打通(CLI test + API /api/settings + 前端 /settings) |
-| 数据 | items 沿用 · `subscriptions` 17+ · `subscriptions_delivered` 143 · `temp_topics` 沿用(TTL) |
-| 数据源 | **28 RSS**(+8: Anthropic/OpenAI/DeepMind/HuggingFace + 电动邦/车东西 + 微博热搜/抖音热榜)+ **5 KOL**(不动)|
-| LLM | M2.7-highspeed → M2.7 → M3 → K2.6(四级 fallback)+ 翻译复用 short_summary |
-| 存储 | MongoDB(主)+ users 集合补 SMTP_PASSWORD / webhook URL 字段(默认脱敏) |
-| **推送渠道** | **6 种** 🆕 `feishu_dm` 个人单聊已上线 + 原有 5 种全打通(`inbox`/`email`/`feishu`群/`wechat`/`webhook`)。**CLI `notify test` + API `/api/notifier/test` + 前端 `/settings` 一键测试**。使用详情见 `docs/notifier-feishu-dm.md` |
-| 分类 | L1(7)+ L2(30+)|
-| 后台 daemon | `scripts/ingest_daemon.py` 30 min/轮 + `scripts/subs_scheduler.py` 60s + `subs_scheduler` 自动跑订阅 + 推送到渠道 |
-| 接口 | CLI + **FastAPI(45 OpenAPI 路径)** + Web(**15 页面** = 11 普通(含 SettingsPage)+ 4 admin)+ **Mobile(7 页面**) + Docs(12 篇) |
-| 源管理 | `source_config` 多文档 + `source_runs` + `system_alerts` + `Depends(require_admin)` 已加 |
-| 源自动化 | huxiu/nitter 多镜像 fallback + 微博 OpenAPI + 翻译 + 🆕 **推送死信队列占位**(Day 8)|
-| 部署目标 | 阿里云 ECS 2C2G(~¥30/月)+ DevOps Day 5-9(横切)|
-| 代码规模 | `src/` **12 包**(+`notifier/test.py` + `api/routes/settings.py`)+ `fastinfo.py` CLI 14 子命令 + `scripts/` 22 |
+| 阶段 | **MVP5 · 源可管理 + 可监控** (Day 5, 2026-07-04) |
+| 最新里程碑 | Day 4:14 RSS + 5 KOL + L1/L2 分类 + 5 渠道推送 + 移动端 /m |
+| 数据 | `items` 113(含 L1) · `subscriptions` 17(含 channels/L1L2/interval_min) · `subscriptions_delivered` 143 · `users` 13 · `task_runs` 2 · `source_config` 1 |
+| 数据源 | **14 RSS**(科技/AI/财经/体育/娱乐/汽车)+ **5 KOL**(微博/X/小红书) |
+| LLM | M2.7-highspeed → M2.7 → M3 → K2.6(四级 fallback) |
+| 存储 | MongoDB(主) |
+| 推送渠道 | **5 种**:`inbox` / `email`(SMTP)/ `feishu` / `wechat` / `webhook` |
+| 分类 | **L1**(7):科技/AI/体育/娱乐/财经/汽车/其他 + **L2**(30+) |
+| 后台 daemon | `ingest_daemon` 30 min + `subs_scheduler` 60s 自动跑订阅 |
+| 接口 | CLI + FastAPI(**42** endpoint) + Web(11 页面) + **Mobile(6 页面)** + Docs(12 篇) |
+| 源管理 | `source_config` 19 条(多文档) + `source_runs` 每日 ~33 条 + `system_alerts` 事件总账 |
+| 源自动化 | huxiu 多镜像 fallback / nitter 5 mirror 轮询 / 微博 OpenAPI 脚手架 / 连续失败 ≥5 自动禁用 + 告警 |
+| 部署目标 | 阿里云 ECS 2C2G(~¥30/月) |
+| 代码规模 | `src/` 9 包(含 `notifier/` + `taxonomy.py` + `crawler/collectors.py`)· `scripts/` 15 个 |
 
 详细里程碑:**`docs/day1-deliverable.md`** / **`docs/day2-deliverable.md`** / **`docs/day3-deliverable.md`** / **`docs/day4-deliverable.md`**。
 
@@ -105,8 +96,8 @@ return {scanned, matched, delivered}
 | 层 | 选型 | 备注 |
 |---|---|---|
 | **DB** | MongoDB 8.x(本机已有)| `text` index search v1 / 后续 LanceDB 向量 v2 |
-| **队列** | Redis 7.x(Docker)| 已起容器 `fastinfo-redis`,6379,healthy |
-| **后端** | venv Python 3.12(本地);ECS Linux Python 3.12 | 不用 3.14,ML 库兼容性差 |
+| **队列** | Redis 7.x(Docker)| Docker Compose 内置 Redis,默认宿主机端口 6379 |
+| **后端** | venv Python 3.12(本地)；ECS Linux Python 3.12 | 不用 3.14,ML 库兼容性差 |
 | **Web 后端** | FastAPI 0.115+ (Day 2 实装)| + uvicorn 0.32+ |
 | **Web 前端** | 单页 HTML(Day 5+)| 走 FastAPI JSON |
 | **LLM 主** | M2.7-highspeed / M2.7 / M3(`api.minimaxi.com/v1`)| OpenAI 协议,`Authorization: Bearer` |
@@ -128,7 +119,7 @@ return {scanned, matched, delivered}
 fast_info/                                              ← 项目根
 ├── AGENTS.md                                           ← ⭐ 本文件,AI/新接手的入口
 ├── README.md                                           ← 对外 facing(简版)
-├── docker-compose.yml                                  ← Redis 单服务
+├── docker-compose.yml                                  ← Docker 预发布环境(Mongo/Redis/API/Web/workers)
 ├── requirements.txt                                    ← Python 依赖
 │
 ├── config/
@@ -218,11 +209,48 @@ fast_info/                                              ← 项目根
 ### 5.1 前置依赖
 
 - **MongoDB 8.x**(本机已装,默认端口 27017)
-- **Docker Desktop**(本机已装,Redis 容器`fastinfo-redis` healthy)
+- **Docker Desktop**(本机已修复,用于本机预发布 / Docker 验证)
 - **Python 3.12+**(本机用 3.14 也兼容大部分代码,部署用 3.12)
 - **API Key**:MiniMax(主)+ Kimi K2.6(备,二选一必有一个)
 
-### 5.2 一键启动
+### 5.2 本地 / Docker 端口约定
+
+> 核心原则:从 **Windows 本机**访问用 `127.0.0.1:宿主机端口`;从 **容器内部**互访用 Compose 服务名 + 容器端口。
+
+#### 本地开发(非 Docker)
+
+| 服务 | 地址 | 说明 |
+|---|---|---|
+| Vue Web | `http://127.0.0.1:5173/` | `frontend` 下 `npm run dev` |
+| FastAPI | `http://127.0.0.1:8000` | `python scripts/api_server.py` |
+| Swagger | `http://127.0.0.1:8000/docs` | 原生 FastAPI 文档 |
+| VitePress Docs | `http://127.0.0.1:5174/` | `docs-site` 下 `npm run dev` |
+| MongoDB | `mongodb://127.0.0.1:27017` | Windows 本机 Mongo |
+| Redis | `redis://127.0.0.1:6379` | 本机 Redis 或单独容器 |
+
+#### Docker 预发布(推荐验收入口)
+
+| 服务 | Windows 访问 | 容器内部访问 | 说明 |
+|---|---|---|---|
+| Web + Nginx | `http://127.0.0.1:8080/` | `web:80` | 用户主入口 |
+| API | `http://127.0.0.1:8000` | `api:8000` | 也可经 Web `/api/*` 反代 |
+| Docs | `http://127.0.0.1:8080/docs/` | `web:80/docs/` | Docker 内置静态文档 |
+| Swagger | `http://127.0.0.1:8080/swagger` | `api:8000/docs` | Nginx 反代到 API |
+| MongoDB | `mongodb://127.0.0.1:27018` | `mongodb://mongo:27017` | 宿主机用 27018,避开本机 27017 |
+| Redis | `redis://127.0.0.1:6379` | `redis://redis:6379` | 如本机已有 Redis,改 `FASTINFO_REDIS_PORT` |
+
+⚠️ 本地开发和 Docker 预发布默认都会占用 `8000`(API)和 `6379`(Redis)。不要同时跑两套默认端口;如需并行,启动 Docker 前改宿主机端口:
+
+```powershell
+$env:FASTINFO_WEB_PORT = "18080"
+$env:FASTINFO_API_PORT = "18000"
+$env:FASTINFO_MONGO_PORT = "37018"
+$env:FASTINFO_REDIS_PORT = "16379"
+$env:DOCKER_REGISTRY_PREFIX = "docker.m.daocloud.io/library/"
+docker compose up -d --build
+```
+
+### 5.3 本地开发一键启动
 
 ```powershell
 # 1) 克隆 / 进入项目
@@ -254,7 +282,71 @@ python scripts/ingest_daemon.py --once
 python fastinfo.py --help
 ```
 
-### 5.3 ECS 部署(Linux,2C2G)
+### 5.4 Docker 编译 + 部署(本机预发布)
+
+适用场景:更新 day5 分支代码后,在本机 Docker 里按接近云环境的方式重新编译、部署、验收。
+
+```powershell
+cd D:\WORK\trae\fast_info
+
+# 1) 如需拉 day5 分支最新代码(手工确认后再执行)
+git switch day5
+git pull
+
+# 2) 国内网络建议加镜像前缀
+$env:DOCKER_REGISTRY_PREFIX = "docker.m.daocloud.io/library/"
+
+# 3) 编译 + 部署核心服务(Mongo / Redis / API / Web / Docs)
+docker compose up -d --build
+
+# 4) 验证服务
+docker compose ps
+curl.exe http://127.0.0.1:8080/healthz
+curl.exe http://127.0.0.1:8080/openapi.json
+```
+
+浏览器验收:
+
+```text
+Web:     http://127.0.0.1:8080/
+Docs:    http://127.0.0.1:8080/docs/
+Swagger: http://127.0.0.1:8080/swagger
+Admin:   admin / admin@2026
+```
+
+Docker 首次启动会自动执行:
+
+```text
+python scripts/init_admin_collections.py
+python scripts/init_admin.py --username admin --password admin@2026
+```
+
+如果改了 `requirements.docker.txt`、Dockerfile、Node 依赖或构建缓存异常,用无缓存重建:
+
+```powershell
+$env:DOCKER_REGISTRY_PREFIX = "docker.m.daocloud.io/library/"
+docker compose build --no-cache api web
+docker compose up -d
+```
+
+如需连后台抓取 / 订阅调度一起跑:
+
+```powershell
+$env:DOCKER_REGISTRY_PREFIX = "docker.m.daocloud.io/library/"
+docker compose --profile workers up -d --build
+```
+
+常用排错:
+
+```powershell
+docker compose logs -f api
+docker compose logs -f web
+docker compose logs -f ingest_daemon
+docker compose down              # 停容器,保留 Mongo/Redis volume 数据
+docker compose down -v           # 危险:连数据库 volume 一起删,只在重置环境时用
+```
+
+### 5.5 ECS 部署(Linux,2C2G)
 
 ```bash
 # 1) 装 Python 3.12 + Redis(可选跳过,用远程 Redis)
@@ -499,7 +591,7 @@ cd docs-site && npm run build         # 产物 → docs-site/.vitepress/dist/
 | `hot` 命令 `NoneType subscriptable` | items 缺 `published_at`,代码已 fallback 到 `fetched_at` |
 | `ingest` 没新增 | 检查 `MMX_API_KEY` / `MONGO_URL` / `KIMI_API_KEY`,看 daemon 日志 |
 | `connect ECONNREFUSED 27017` | `mongosh` 检查 Mongo 进程;Linux 用 `systemctl status mongod` |
-| Kimi 调用 401 | 走的协议不对 - **必须** `x-api-key` header + `anthropic-version: 2023-06-01`,endpoint `/v1/messages`(不是 `/v1/chat/completions`)|
+| Kimi 调用 401 | 走的协议不对 — **必须** `x-api-key` header + `anthropic-version: 2023-06-01`,endpoint `/v1/messages`(不是 `/v1/chat/completions`)|
 | `RuntimeError: There is no current event loop` | 用了 nested `asyncio.run`,改用本文件的 sync wrapper |
 | **API 返 502 空响应,但 `app.openapi()` 正常** | 本机 Clash / v2rayN 把 127.0.0.1 流量劫到 7892 返 502。`api_server.py` 默认会自动清代理;客户端进程需手动 `$env:HTTP_PROXY=''; $env:HTTPS_PROXY=''` 或 smoke 脚本已内置清代理 |
 | `winerror 10013` / `无法访问套接字` | 端口被系统策略拦,换 `--port 18080` 或加防火墙规则 |
@@ -569,9 +661,7 @@ await registry.aclose()
 | **Day 3** | Web 平台 + 文档站 | Vue3 前端 11 页面 + VitePress 文档站 12 篇 + 后端 9 个新 API + admin 视图 | ✅ |
 | **Day 4** | 多源 + KOL + 二级分类 + 多渠道推送 + 移动端 | 14 RSS + 5 KOL + L1/L2 + 5 渠道 Notifier + /m 移动端 + subs_scheduler | ✅ **今日** |
 | **Day 5** | 源可管理 + 可监控 | 19 源 × source_runs + 8 admin API + SourcesPage 升级 + 自动禁用 + 告警 + huxiu/nitter 多镜像 | ✅ **今日** |
-| **Day 6+** | **Day 6** | 临时话题 + NL 改订阅 + admin 鉴权 + 翻译 + 扩源 6 个 | v0.3.0,5 维度完成,2 维度留 Day 7 | ✅ |
-| **Day 7** | **主流覆盖 9 源 + 触达 4 步(CLI/API/前端/真测)** | **v0.4.0:** AI 从 2 → 6 RSS,汽车从 1 → 3,娱乐 + 2,推送全链路完成 | ✅ **今日** |
-| **Day 8** | 推送历史/死信重试 + 移动端 `/m/settings` + 移动端 NL PATCH 按钮 + 检索 v2 起步 | 推送可靠性 + 移动端完整 + 检索升级 | ⏳ |
+| **Day 6+** | 推送可靠性 + 移动端完善 + DevOps Day 6 (5 服务镜像化) | 死信队列 / 重试 / 移动端订阅管理 / 平板适配 / Phase 4 真 KOL API (X v2 / 微博 OpenAPI) | ⏳ |
 
 **更新节奏**:每日完工 → 写 `docs/day{N}-deliverable.md` → 回填本文件 §1 / §5 / §6 相应章节。
 
@@ -601,7 +691,7 @@ await registry.aclose()
 | ADR-004 | Kimi 用 Anthropic 协议 | 实测 OpenAI 协议 401(`api.moonshot.cn/v1`),Anthropic 协议 200(`api.kimi.com/coding/v1`)|
 | ADR-005 | ingest / subs 解耦 | 性能:subs 毫秒级;语义:管理员视图 vs 用户视图 |
 | ADR-006 | 公共 items + per-user subs | 一篇文章一次摘要,多用户共享(broadcast 模型)|
-| ADR-007 | v1 MongoDB text,v2 LanceDB + DashScope | 降级路径明确 - 本机随时能用 v1,DashScope 用于 v2 精度提升 |
+| ADR-007 | v1 MongoDB text,v2 LanceDB + DashScope | 降级路径明确 — 本机随时能用 v1,DashScope 用于 v2 精度提升 |
 | ADR-008 | 自家 cron 解析(不上 APScheduler) | 5 行代码解决,少一个依赖 |
 | ADR-009 | 滚动交付:by-day 版本 | 用户明确要求 |
 | ADR-010 | GitHub 仓库 + GitHub Actions(2026-07-03) | 生态全、免费额度够、单人项目不需要复杂审批流 |
@@ -630,7 +720,7 @@ await registry.aclose()
 | ISSUE-002 | categories 软匹配是临时方案 | LLM 输出"AI芯片/融资"等细分类,跟用户 `categories=['AI']` 对不上 | Day 4 改 LLM prompt 输出固定二级标签 `["AI","科技","财经","汽车","娱乐","体育","其他"]` |
 | ISSUE-003 | 没有真正的 scheduler daemon | `subs run` 必须手动(CLI)或靠 ingest_daemon 触发外推 | Day 3 加 `subs_scheduler.py`(cron 触发)|
 | ISSUE-004 | ingest_daemon 进程级轮询非 systemd | ECS 上需要 systemd unit 兜底 | 文档已带 §5.3 部署说明,Day 3 加 unit 文件 |
-| ISSUE-005 | ~~FastAPI 未上~~ → **已 Day 2 实装,smoke 13/13 通过** | - | ✅ 已关闭 |
+| ISSUE-005 | ~~FastAPI 未上~~ → **已 Day 2 实装,smoke 13/13 通过** | — | ✅ 已关闭 |
 | ISSUE-006 | 没有 retrieval 层 v2 | 仅 MongoDB text search,精度受限 | Day 4 |
 | **NEW-1** | MongoDB text 索引对中文检索差 | "量子位" 0 命中,英文词正常 | Day 4 切 BGE-M3 / DashScope ⚠️ **未切,Day 5 不在范围** |
 | **NEW-2** | Redis 当前没被代码使用 | docker daemon 没起 + 代码无 Redis 调用,"队列/去重"是文档理想 | 推迟(Day 5+ 真用上时再接) |
@@ -649,14 +739,12 @@ await registry.aclose()
 
 | ISSUE-001 | ~~huxiu RSS `ReadTimeout`~~ | huxiu 多镜像 fallback 已解 | ✅ **Day 5 已关闭** |
 | **NEW-7** | 小红书/抖音/微博 scrape 易被风控 | 数据源稳定性问题 | Day 5 仅删 XHS demo,待 Phase 4 接 X v2 / 微博 OpenAPI |
-| **NEW-8** | admin API 当前公开 | `source_admin/*` 全部 router 直接 dispatch,无 `Depends(require_admin)` | 工具函数 `api.deps_admin.require_admin` 已实现(`deps_admin.py` 顶部明确"在 require_user 基础上多查一次 users.role");**Day 6 待办**:在 `source_admin.py` 每个 router 加 `Depends(require_admin)`,并在 `require_user` 中加简单 API-key/X-Admin-Token fallback(给 CLI 调试)|
+| **NEW-8** | admin API 当前公开,前端未鉴权 | source_admin/* 全公开 | 待 role-based guard |
 | **NEW-9** | 告警 webhook 走 env,未抽到 Notifier 框架 | 当前用 `httpx.post(webhook, json=payload)` | 下一轮抽到 `notifier.send_all(user, ['webhook'], ...)` |
 | **Day 5** | source_runs 自动禁用的 source_config 联动 + alarm | ✅ 已上线 | ✅ 关闭 |
-| **Day 5.1** | `require_admin` 函数已建但未接入 source_admin router | admin API 仍公开 | ⏳ Day 6 |
-| **Day 5.2** | mobile 页数 7(含 MobileLayout)vs README 6 | 计数口径差异,文档已校准 | ✅ 已关闭 |
-| **Day 5.3** | Web admin 页 4 个(AdminHome/Sources/Banner/Tasks)未单独列出 | 补入 §1 / §4 | ✅ 已关闭 |
 
 ---
+
 ## 12. 测试 & 验证清单(每个 day 完工都要走一遍)
 
 ```powershell
@@ -729,38 +817,4 @@ python fastinfo.py stats                             # MongoDB 状态 / 索引
 
 ---
 
-*Last updated: 2026-07-04 09:55 GMT+8(Day 7 完成 · v0.4.0 API · /api 45 endpoints · 28 RSS · 14+7 页面)* · *Next update: Day 8 完工时*
-
----
-
-## 14. 记忆三件套 / 跨会话持续
-
-> 2026-07-04 07:53 修 OpenClaw 上下文丢失问题后,固化的三层结构。每次新开会话 AI 会按这顺序读,就能 100% 接上。
-
-| 层 | 路径 | 谁加载 |
-|---|---|---|
-| 1️⃣ 主会话长期记忆 | `~/.openclaw/workspace/MEMORY.md` | OpenClaw 自动注入 system prompt(bootstrap)|
-| 2️⃣ 当日日报 | `~/.openclaw/workspace/memory/YYYY-MM-DD.md` | `memory_search` 取(`/date/topic`)|
-| 3️⃣ 项目圣经 | `~/.openclaw/workspace/fast_info/AGENTS.md` | `memory_search` 通过 `agents.defaults.memorySearch.extraPaths` 自动命中 |
-
-### 每日完工 checklist(强制)
-- [ ] 更新本文件 §1 / §11 / §13(Day 进度 / 新 issue / Last updated)
-- [ ] 追加当日 `memory/YYYY-MM-DD.md` §“今日交付” + §“明日计划”
-- [ ] 把这次会话我亲口说出的新决策 / 定位原话 回填到 §0 / §10 ADR
-- [ ] 重要雷区 → 回填 `MEMORY.md` §“已知雷区”
-- [ ] **CHANGELOG 同步**(见 `docs/CHANGELOG-MAINTENANCE.md`)
-
-### 文档索引
-
-跨会话与版本看的东西:
-
-| 文档 | 看什么 |
-|---|---|
-| **`AGENTS.md`** (本文件) | 全局全貌 · 架构 · 状态 · ADR · 完整路径 |
-| **`docs/CHANGELOG.md`** | 跨版本变更轨迹(每个版本 add/change/fix) |
-| **`docs/CHANGELOG-MAINTENANCE.md`** | 怎么维护上面的 changelog |
-| **`docs/day{N}-deliverable.md`** | 单日交付完整复盘 |
-| **`docs/fastInfo-MVP-整体方案-v1.0.md`** | MVP 路径总账 |
-| **`docs/devops-研发部署流程升级-v1.0.md`** | DevOps 路线 |
-| **`~/.openclaw/workspace/MEMORY.md`** | OpenClaw 主会话长期记忆(不入 git) |
-| **`~/.openclaw/workspace/memory/YYYY-MM-DD.md`** | OpenClaw 每日工作日志(不入 git) |
+*Last updated: 2026-07-04(Day 5 完成)* · *Next update: Day 6 完工时* · *Next update: Day 3 完工时*

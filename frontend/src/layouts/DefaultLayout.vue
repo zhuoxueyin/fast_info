@@ -30,7 +30,7 @@
         <div class="flex-1"></div>
 
         <nav class="flex items-center gap-3 text-sm flex-shrink-0">
-          <a href="http://127.0.0.1:5174/" target="_blank" class="text-slate-400 hover:text-slate-600 text-xs">📖 文档</a>
+          <a href="/docs/" target="_blank" class="text-slate-400 hover:text-slate-600 text-xs">📖 文档</a>
           <template v-if="auth.isLoggedIn">
             <router-link v-if="auth.isAdmin" to="/admin" class="text-amber-600 hover:text-amber-700">🔧 管理</router-link>
             <n-dropdown :options="userMenuOptions" @select="onUserMenu">
@@ -54,8 +54,8 @@
     <n-layout-footer class="bg-white border-t">
       <div class="max-w-[1280px] mx-auto px-6 py-4 text-center text-xs text-slate-500">
         fastInfo · 个人化 AI 情报中枢 ·
-        <a href="http://127.0.0.1:5174/" class="text-emerald-600 hover:underline" target="_blank">文档</a> ·
-        <a href="http://127.0.0.1:8000/docs" class="text-emerald-600 hover:underline" target="_blank">Swagger UI</a>
+        <a href="/docs/" class="text-emerald-600 hover:underline" target="_blank">文档</a> ·
+        <a href="/swagger" class="text-emerald-600 hover:underline" target="_blank">Swagger UI</a>
       </div>
     </n-layout-footer>
   </n-layout>

@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 async def run_once(args) -> int:
     """执行一次完整 ingest 流程"""
     import uuid
-    from crawler.rss_collector import fetch_all
+    from crawler.collectors import fetch_all
     from storage.mongo_writer import (
         upsert_item_async, get_done_urls, get_recent_title_hashes,
         ensure_indexes, record_task_run,
@@ -66,11 +66,12 @@ async def run_once(args) -> int:
         async with sem:
             system_prompt = (
                 "你是中文资讯编辑。对给定文章标题和摘要进行处理，输出严格JSON（无markdown包裹，无多余文字）：\n"
-                '{"summary": "120-180字中文摘要，信息完整，不空洞", "key_points": ["要点1","要点2","要点3"], '
+                '{"title_zh": "中文标题(若原标题已是中文则与原标题一致;若为英文必须翻译成简洁中文,实体名/队名/球员名可保留英文,≤30字)", '
+                '"summary": "120-180字中文摘要，信息完整，不空洞", "key_points": ["要点1","要点2","要点3"], '
                 '"category": "二级分类(如大模型/AI芯片/新能源/自动驾驶/A股/影视等)", '
                 '"category_l1": "一级分类，必须是：科技/AI/体育/娱乐/财经/汽车/其他 之一", '
                 '"relevance": 0.0-10.0热度分}\n'
-                "规则：category_l1必须从给定列表中选最贴切的一个；summary必须有实质内容不要空。"
+                "规则：category_l1必须从给定列表中选最贴切的一个；summary必须有实质内容不要空；title_zh必须输出。"
             )
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -111,6 +112,17 @@ async def run_once(args) -> int:
             if not summary_text or len(summary_text) < 10:
                 summary_text = fallback_summary
 
+            # title_zh: 优先使用 LLM 翻译的中文标题
+            title_zh = (parsed.get("title_zh") or "").strip()
+            original_title = item.title
+            title_translated = False
+            if title_zh and len(title_zh) >= 2:
+                # LLM 给了中文翻译，用它作为主标题
+                final_title = title_zh
+                title_translated = (title_zh != original_title)
+            else:
+                final_title = original_title
+
             from taxonomy import normalize_l1
             cat_l1 = parsed.get("category_l1") or normalize_l1(parsed.get("category"))
             if cat_l1 not in ("科技","AI","体育","娱乐","财经","汽车","其他"):
@@ -119,7 +131,8 @@ async def run_once(args) -> int:
             doc = {
                 "url_hash": item.id, "id": item.id,
                 "source": item.source, "source_url": item.source_url, "url": item.url,
-                "title": item.title, "title_hash": item.title_hash,
+                "title": final_title, "title_original": original_title, "title_hash": item.title_hash,
+                "title_translated": title_translated,
                 "published_at": item.published_at, "fetched_at": item.fetched_at,
                 "author": item.author, "tags": item.tags, "language": item.language,
                 "summary": summary_text,

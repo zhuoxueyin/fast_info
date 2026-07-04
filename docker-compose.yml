@@ -14,9 +14,8 @@
 services:
   mongo:
     image: ${DOCKER_REGISTRY_PREFIX:-}mongo:8
-    container_name: fastinfo-mongo
     ports:
-      - "27018:27017"
+      - "${FASTINFO_MONGO_PORT:-27018}:27017"
     volumes:
       - mongo_data:/data/db
     restart: unless-stopped
@@ -28,9 +27,8 @@ services:
 
   redis:
     image: ${DOCKER_REGISTRY_PREFIX:-}redis:7-alpine
-    container_name: fastinfo-redis
     ports:
-      - "6379:6379"
+      - "${FASTINFO_REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command:
@@ -57,11 +55,10 @@ services:
       dockerfile: docker/api.Dockerfile
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
-    container_name: fastinfo-api
     env_file:
       - docker/env.docker.example
     ports:
-      - "8000:8000"
+      - "${FASTINFO_API_PORT:-8000}:8000"
     volumes:
       - api_data:/app/data
     depends_on:
@@ -77,9 +74,8 @@ services:
       dockerfile: docker/web.Dockerfile
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
-    container_name: fastinfo-web
     ports:
-      - "8080:80"
+      - "${FASTINFO_WEB_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_started
@@ -91,7 +87,6 @@ services:
       dockerfile: docker/api.Dockerfile
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
-    container_name: fastinfo-ingest
     env_file:
       - docker/env.docker.example
     command: ["python", "scripts/ingest_daemon.py", "--interval", "1800", "--limit", "8"]
@@ -112,7 +107,6 @@ services:
       dockerfile: docker/api.Dockerfile
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
-    container_name: fastinfo-subs-scheduler
     env_file:
       - docker/env.docker.example
     command: ["python", "scripts/subs_scheduler.py", "--interval", "60"]

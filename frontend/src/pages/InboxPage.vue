@@ -19,6 +19,8 @@
       :pagination="{ pageSize: 20 }"
       :bordered="false"
       :row-key="(r: any) => r.item.id"
+      :row-props="() => ({ style: 'height: 56px' })"
+      :single-line="false"
     />
     <n-empty v-else description="还没有推送" />
   </div>
@@ -46,18 +48,22 @@ const sortOpts = [
 const rows = computed(() => items.value)
 
 const cols: DataTableColumns<InboxItem> = [
-  { title: '订阅', key: 'subscription_title', width: 120, render: (r: InboxItem) => h('span', { class: 'text-xs text-slate-600' }, r.subscription_title || '-') },
+  { title: '订阅', key: 'subscription_title', width: 100, render: (r: InboxItem) => h('span', { class: 'text-xs text-slate-600' }, r.subscription_title || '-') },
   {
     title: '标题', key: 'item.title', ellipsis: { tooltip: true },
-    render: (r: InboxItem) => h('router-link', { to: `/items/${r.item.id}`, class: 'text-slate-900 hover:text-emerald-600' }, () => r.item.title),
+    render: (r: InboxItem) => h('router-link', {
+      to: `/items/${r.item.id}`,
+      class: 'text-slate-900 hover:text-emerald-600',
+      style: 'display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;',
+    }, () => r.item.title),
   },
-  { title: '类目', key: 'item.category', width: 80, render: (r: InboxItem) => h(NTag, { size: 'small', type: 'success' }, () => r.item.category || '-') },
+  { title: '类目', key: 'item.category_l1', width: 70, render: (r: InboxItem) => h(NTag, { size: 'small', type: 'success' }, () => r.item.category_l1 || r.item.category || '-') },
   {
-    title: '相关度', key: 'item.relevance', width: 80,
+    title: '相关度', key: 'item.relevance', width: 70, align: 'right',
     render: (r: InboxItem) => r.item.relevance !== undefined ? r.item.relevance.toFixed(1) : '-',
   },
   {
-    title: '推送时间', key: 'delivered_at', width: 140,
+    title: '推送时间', key: 'delivered_at', width: 130,
     render: (r: InboxItem) => r.delivered_at ? dayjs(r.delivered_at).format('MM-DD HH:mm') : '-',
   },
 ]

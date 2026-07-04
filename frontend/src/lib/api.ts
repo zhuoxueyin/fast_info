@@ -1,10 +1,5 @@
 import { ofetch } from 'ofetch'
 
-const base = (path: string) => {
-  const baseUrl = ''  // dev: vite proxy; prod: nginx
-  return `${baseUrl}${path}`
-}
-
 // 不带 auth header 的基础 fetch
 const authFetch = ofetch.create({
   baseURL: '',
@@ -14,7 +9,6 @@ const authFetch = ofetch.create({
     if (token) {
       options.headers = { ...(options.headers as any || {}), Authorization: `Bearer ${token}` }
     }
-    return options
   },
   onResponseError({ response }) {
     if (response.status === 401 && !location.pathname.startsWith('/login')) {
@@ -24,6 +18,13 @@ const authFetch = ofetch.create({
 })
 
 export default authFetch
+
+export function api<T = any>(path: string, options: any = {}) {
+  const normalizedPath = path.startsWith('/api/')
+    ? path
+    : `/api${path.startsWith('/') ? path : `/${path}`}`
+  return authFetch<T>(normalizedPath, options)
+}
 
 // ============================================================
 // 日 / 用户 / 订阅
