@@ -10,28 +10,37 @@
 
 ## 0. 项目一句话
 
-**fastInfo = 资讯中心 + AI 情报中枢** — 把分散的 RSS、AI 媒体、热搜用 LLM 摘要 / 解读聚合,按用户**个人订阅**精准推送,BYOK + 本地优先 + 零数据外传。
+**fastInfo = AI 驱动的资讯情报中枢** —— 用户用自然语言对话告诉系统"想看什么",AI 从统一资讯池里为他持续订阅 / 临时生成 / 主动推荐。
+
+**三个参照面**:
+1. **差异化 vs 传统资讯**(微博/头条/今日头条):那些人**主动推荐 / 用户主动浏览**;我们**AI 驱动 + 用户 NL 自定义 + AI 协同分发** —— 主动权反转。
+2. **差异化 vs 传统 RSS 工具**(Feedly/Inoreader):那些人**手动选源 + 关键词过滤**;我们**NL 对话一句话建订阅**,无需懂 RSS 协议。
+3. **差异化 vs 算法推荐**(抖音/小红书即刻 feed):那些人**被动接信息流**;我们**主动表达 + 持续精确供给**。
+
+**关键场景**:用户说"今天想关注世界杯" → AI 从统一资讯池为他聚合 + 摘要 + 推送(世界杯例子可以是临时兴趣,不必建长期 sub)。
+
+**边界**:BYOK(自带 LLM key)+ 本地优先 + 零数据外传。
 
 ---
 
-## 1. 现状速览(2026-07-03,Day 4 ✅)
+## 1. 现状速览(2026-07-04,Day 7 ✅)
 
 | 维度 | 当前 |
 |---|---|
-| 阶段 | **MVP5 · 源可管理 + 可监控** (Day 5, 2026-07-04) |
-| 最新里程碑 | Day 4:14 RSS + 5 KOL + L1/L2 分类 + 5 渠道推送 + 移动端 /m |
-| 数据 | `items` 113(含 L1) · `subscriptions` 17(含 channels/L1L2/interval_min) · `subscriptions_delivered` 143 · `users` 13 · `task_runs` 2 · `source_config` 1 |
-| 数据源 | **14 RSS**(科技/AI/财经/体育/娱乐/汽车)+ **5 KOL**(微博/X/小红书) |
-| LLM | M2.7-highspeed → M2.7 → M3 → K2.6(四级 fallback) |
-| 存储 | MongoDB(主) |
-| 推送渠道 | **5 种**:`inbox` / `email`(SMTP)/ `feishu` / `wechat` / `webhook` |
-| 分类 | **L1**(7):科技/AI/体育/娱乐/财经/汽车/其他 + **L2**(30+) |
-| 后台 daemon | `ingest_daemon` 30 min + `subs_scheduler` 60s 自动跑订阅 |
-| 接口 | CLI + FastAPI(**42** endpoint) + Web(11 页面) + **Mobile(6 页面)** + Docs(12 篇) |
-| 源管理 | `source_config` 19 条(多文档) + `source_runs` 每日 ~33 条 + `system_alerts` 事件总账 |
-| 源自动化 | huxiu 多镜像 fallback / nitter 5 mirror 轮询 / 微博 OpenAPI 脚手架 / 连续失败 ≥5 自动禁用 + 告警 |
-| 部署目标 | 阿里云 ECS 2C2G(~¥30/月) |
-| 代码规模 | `src/` 9 包(含 `notifier/` + `taxonomy.py` + `crawler/collectors.py`)· `scripts/` 15 个 |
+| 阶段 | **MVP7 · 主流覆盖 + 触达端到端** (Day 7 v0.4.0 完成,2026-07-04) |
+| 最新里程碑 | Day 7:9 类目补源(AI 4/汽车 2/娱乐 2)+ 推送全链路打通(CLI test + API /api/settings + 前端 /settings) |
+| 数据 | items 沿用 · `subscriptions` 17+ · `subscriptions_delivered` 143 · `temp_topics` 沿用(TTL) |
+| 数据源 | **28 RSS**(+8: Anthropic/OpenAI/DeepMind/HuggingFace + 电动邦/车东西 + 微博热搜/抖音热榜)+ **5 KOL**(不动)|
+| LLM | M2.7-highspeed → M2.7 → M3 → K2.6(四级 fallback)+ 翻译复用 short_summary |
+| 存储 | MongoDB(主)+ users 集合补 SMTP_PASSWORD / webhook URL 字段(默认脱敏) |
+| **推送渠道** | **6 种** 🆕 `feishu_dm` 个人单聊已上线 + 原有 5 种全打通(`inbox`/`email`/`feishu`群/`wechat`/`webhook`)。**CLI `notify test` + API `/api/notifier/test` + 前端 `/settings` 一键测试**。使用详情见 `docs/notifier-feishu-dm.md` |
+| 分类 | L1(7)+ L2(30+)|
+| 后台 daemon | `scripts/ingest_daemon.py` 30 min/轮 + `scripts/subs_scheduler.py` 60s + `subs_scheduler` 自动跑订阅 + 推送到渠道 |
+| 接口 | CLI + **FastAPI(45 OpenAPI 路径)** + Web(**15 页面** = 11 普通(含 SettingsPage)+ 4 admin)+ **Mobile(7 页面**) + Docs(12 篇) |
+| 源管理 | `source_config` 多文档 + `source_runs` + `system_alerts` + `Depends(require_admin)` 已加 |
+| 源自动化 | huxiu/nitter 多镜像 fallback + 微博 OpenAPI + 翻译 + 🆕 **推送死信队列占位**(Day 8)|
+| 部署目标 | 阿里云 ECS 2C2G(~¥30/月)+ DevOps Day 5-9(横切)|
+| 代码规模 | `src/` **12 包**(+`notifier/test.py` + `api/routes/settings.py`)+ `fastinfo.py` CLI 14 子命令 + `scripts/` 22 |
 
 详细里程碑:**`docs/day1-deliverable.md`** / **`docs/day2-deliverable.md`** / **`docs/day3-deliverable.md`** / **`docs/day4-deliverable.md`**。
 
@@ -560,7 +569,9 @@ await registry.aclose()
 | **Day 3** | Web 平台 + 文档站 | Vue3 前端 11 页面 + VitePress 文档站 12 篇 + 后端 9 个新 API + admin 视图 | ✅ |
 | **Day 4** | 多源 + KOL + 二级分类 + 多渠道推送 + 移动端 | 14 RSS + 5 KOL + L1/L2 + 5 渠道 Notifier + /m 移动端 + subs_scheduler | ✅ **今日** |
 | **Day 5** | 源可管理 + 可监控 | 19 源 × source_runs + 8 admin API + SourcesPage 升级 + 自动禁用 + 告警 + huxiu/nitter 多镜像 | ✅ **今日** |
-| **Day 6+** | 推送可靠性 + 移动端完善 + DevOps Day 6 (5 服务镜像化) | 死信队列 / 重试 / 移动端订阅管理 / 平板适配 / Phase 4 真 KOL API (X v2 / 微博 OpenAPI) | ⏳ |
+| **Day 6+** | **Day 6** | 临时话题 + NL 改订阅 + admin 鉴权 + 翻译 + 扩源 6 个 | v0.3.0,5 维度完成,2 维度留 Day 7 | ✅ |
+| **Day 7** | **主流覆盖 9 源 + 触达 4 步(CLI/API/前端/真测)** | **v0.4.0:** AI 从 2 → 6 RSS,汽车从 1 → 3,娱乐 + 2,推送全链路完成 | ✅ **今日** |
+| **Day 8** | 推送历史/死信重试 + 移动端 `/m/settings` + 移动端 NL PATCH 按钮 + 检索 v2 起步 | 推送可靠性 + 移动端完整 + 检索升级 | ⏳ |
 
 **更新节奏**:每日完工 → 写 `docs/day{N}-deliverable.md` → 回填本文件 §1 / §5 / §6 相应章节。
 
@@ -638,12 +649,14 @@ await registry.aclose()
 
 | ISSUE-001 | ~~huxiu RSS `ReadTimeout`~~ | huxiu 多镜像 fallback 已解 | ✅ **Day 5 已关闭** |
 | **NEW-7** | 小红书/抖音/微博 scrape 易被风控 | 数据源稳定性问题 | Day 5 仅删 XHS demo,待 Phase 4 接 X v2 / 微博 OpenAPI |
-| **NEW-8** | admin API 当前公开,前端未鉴权 | source_admin/* 全公开 | 待 role-based guard |
+| **NEW-8** | admin API 当前公开 | `source_admin/*` 全部 router 直接 dispatch,无 `Depends(require_admin)` | 工具函数 `api.deps_admin.require_admin` 已实现(`deps_admin.py` 顶部明确"在 require_user 基础上多查一次 users.role");**Day 6 待办**:在 `source_admin.py` 每个 router 加 `Depends(require_admin)`,并在 `require_user` 中加简单 API-key/X-Admin-Token fallback(给 CLI 调试)|
 | **NEW-9** | 告警 webhook 走 env,未抽到 Notifier 框架 | 当前用 `httpx.post(webhook, json=payload)` | 下一轮抽到 `notifier.send_all(user, ['webhook'], ...)` |
 | **Day 5** | source_runs 自动禁用的 source_config 联动 + alarm | ✅ 已上线 | ✅ 关闭 |
+| **Day 5.1** | `require_admin` 函数已建但未接入 source_admin router | admin API 仍公开 | ⏳ Day 6 |
+| **Day 5.2** | mobile 页数 7(含 MobileLayout)vs README 6 | 计数口径差异,文档已校准 | ✅ 已关闭 |
+| **Day 5.3** | Web admin 页 4 个(AdminHome/Sources/Banner/Tasks)未单独列出 | 补入 §1 / §4 | ✅ 已关闭 |
 
 ---
-
 ## 12. 测试 & 验证清单(每个 day 完工都要走一遍)
 
 ```powershell
@@ -716,4 +729,22 @@ python fastinfo.py stats                             # MongoDB 状态 / 索引
 
 ---
 
-*Last updated: 2026-07-04(Day 5 完成)* · *Next update: Day 6 完工时* · *Next update: Day 3 完工时*
+*Last updated: 2026-07-04 09:55 GMT+8(Day 7 完成 · v0.4.0 API · /api 45 endpoints · 28 RSS · 14+7 页面)* · *Next update: Day 8 完工时*
+
+---
+
+## 14. 记忆三件套 / 跨会话持续
+
+> 2026-07-04 07:53 修 OpenClaw 上下文丢失问题后,固化的三层结构。每次新开会话 AI 会按这顺序读,就能 100% 接上。
+
+| 层 | 路径 | 谁加载 |
+|---|---|---|
+| 1️⃣ 主会话长期记忆 | `~/.openclaw/workspace/MEMORY.md` | OpenClaw 自动注入 system prompt(bootstrap)|
+| 2️⃣ 当日日报 | `~/.openclaw/workspace/memory/YYYY-MM-DD.md` | `memory_search` 取(`/date/topic`)|
+| 3️⃣ 项目圣经 | `~/.openclaw/workspace/fast_info/AGENTS.md` | `memory_search` 通过 `agents.defaults.memorySearch.extraPaths` 自动命中 |
+
+### 每日完工 checklist(强制)
+- [ ] 更新本文件 §1 / §11 / §13(Day 进度 / 新 issue / Last updated)
+- [ ] 追加当日 `memory/YYYY-MM-DD.md` §"今日交付" + §"明日计划"
+- [ ] 把这次会话我亲口说出的新决策 / 定位原话 回填到 §0 / §10 ADR
+- [ ] 重要雷区 → 回填 `MEMORY.md` §"已知雷区"
