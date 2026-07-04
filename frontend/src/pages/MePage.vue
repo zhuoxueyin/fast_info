@@ -22,18 +22,7 @@
     <!-- 推送渠道配置 -->
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
       <h2 class="text-lg font-semibold mb-2">📡 推送渠道配置</h2>
-      <p class="text-xs text-slate-500 mb-4">配置后,在新建/编辑订阅时选择对应渠道即可接收推送。<span class="text-amber-600">邮件推送需管理员配置SMTP,飞书/企微/Webhook由用户自行填入webhook。</span></p>
-      <div class="bg-emerald-50 border border-emerald-200 rounded p-3 mb-4 text-sm flex items-center justify-between">
-        <div>
-          <strong>🚀 想推送到你自己飞书?</strong>
-          <span class="text-slate-500 text-xs ml-2">点下面按钮 → 飞书授权 → 以后订阅触发直接发到你手机</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span v-if="feishuBind.bound" class="text-emerald-600">✓ 已绑定 <code class="text-xs">{{ feishuBind.open_id?.slice(0, 12) }}…</code></span>
-          <n-button type="primary" size="small" @click="goBindFeishu">{{ feishuBind.bound ? '重新绑定' : '绑定飞书个人账号' }}</n-button>
-          <n-button v-if="feishuBind.bound" size="small" @click="unbindFeishu">解绑</n-button>
-        </div>
-      </div>
+      <p class="text-xs text-slate-500 mb-4">配置后,在新建/编辑订阅时选择对应渠道即可接收推送。<span class="text-amber-600">邮件推送需管理员配置SMTP,飞书OAuth 需在飞书后台开 <code class="px-1 bg-slate-100 rounded">im:message</code> 权限。</span></p>
 
       <div class="grid gap-5 md:grid-cols-2">
         <div class="border border-slate-100 rounded-lg p-4">
@@ -98,6 +87,22 @@
             @blur="saveProfile"
           />
           <p class="text-xs text-slate-400 mt-2">推送时会 POST JSON {subject, content_html, items[], username} 到此地址</p>
+        </div>
+
+        <div class="border border-emerald-200 bg-emerald-50/30 rounded-lg p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="text-lg">🧜</span>
+            <span class="font-medium">飞书个人单聊</span>
+            <n-tag size="small" :bordered="false" type="success" v-if="feishuBind.bound">✓ 已绑定</n-tag>
+            <n-tag size="small" :bordered="false" v-else>未绑定</n-tag>
+            <a v-if="feishuBind.bound" class="ml-auto text-xs text-slate-400 font-mono" :title="feishuBind.open_id">{{ feishuBind.open_id?.slice(0, 12) }}…</a>
+          </div>
+          <div class="text-xs text-slate-500 mb-2">推送到你个人飞书,不走群。需在飞书后台已开 <code class="px-1 bg-slate-100 rounded">im:message</code> 权限。</div>
+          <div class="flex gap-2">
+            <n-button v-if="!feishuBind.bound" type="primary" size="small" @click="goBindFeishu">🔵 绑定飞书个人账号</n-button>
+            <n-button v-else size="small" @click="goBindFeishu">重新绑定</n-button>
+            <n-button v-if="feishuBind.bound" size="small" type="error" ghost @click="unbindFeishuAction">解绑</n-button>
+          </div>
         </div>
       </div>
 
