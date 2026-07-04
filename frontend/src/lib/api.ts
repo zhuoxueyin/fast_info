@@ -97,6 +97,59 @@ export async function deleteSub(id: string) {
   return authFetch(`/api/subs/${id}`, { method: 'DELETE' })
 }
 
+export async function nlPatchSub(id: string, nl_command: string) {
+  return authFetch(`/api/subs/${id}/nl-patch`, { method: 'POST', body: { nl_command } })
+}
+
+export async function listTopics(opts: { active_only?: boolean } = {}) {
+  const qs = opts.active_only === false ? '?active_only=false' : ''
+  return authFetch(`/api/topics/list${qs}`)
+}
+
+export async function createTopicNow(nl_query: string, max_items = 12, hours = 48) {
+  return authFetch('/api/topics/now', { method: 'POST', body: { nl_query, max_items, hours } })
+}
+
+// ============================================================
+// 推送配置 (Settings + Notifier) - Day 7 v0.4.0/v0.4.1
+// ============================================================
+
+export async function getSettings() {
+  return authFetch('/api/settings')
+}
+
+export async function saveSettings(body: any) {
+  return authFetch('/api/settings', { method: 'PUT', body })
+}
+
+export async function listNotifierChannels() {
+  return authFetch('/api/notifier/channels')
+}
+
+export async function testNotifier(channel: string) {
+  return authFetch('/api/notifier/test', { method: 'POST', body: { channel } })
+}
+
+// 飞书 OAuth
+export async function startFeishuBind() {
+  return authFetch('/api/auth/feishu/bind') as Promise<{ oauth_url: string; state: string }>
+}
+
+export async function getFeishuBindStatus() {
+  return authFetch('/api/auth/feishu/status') as Promise<{
+    bound: boolean
+    open_id?: string | null
+    name?: string | null
+    email?: string | null
+    avatar?: string | null
+    bind_at?: string | null
+  }>
+}
+
+export async function unbindFeishu() {
+  return authFetch('/api/auth/feishu/unbind', { method: 'POST' })
+}
+
 // ============================================================
 // Admin: 数据源 (Day 5)
 // ============================================================

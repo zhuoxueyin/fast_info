@@ -25,6 +25,8 @@
         <nav class="flex items-center gap-4 text-sm flex-shrink-0">
           <router-link to="/hot" class="text-slate-700 hover:text-emerald-600 font-medium">📊 今日排行</router-link>
           <router-link v-if="auth.isLoggedIn" to="/me/inbox" class="text-slate-700 hover:text-emerald-600 font-medium">⭐ 个人关注</router-link>
+          <router-link v-if="auth.isLoggedIn" to="/subs/new" class="text-slate-700 hover:text-emerald-600 font-medium">＋ 新订阅</router-link>
+          <router-link v-if="auth.isLoggedIn" to="/settings" class="text-slate-700 hover:text-emerald-600 font-medium" title="推送配置(绑定飞书个人 / 邮箱 SMTP / Webhook)">⚙️ 推送</router-link>
         </nav>
 
         <div class="flex-1"></div>

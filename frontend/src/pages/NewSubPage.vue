@@ -88,13 +88,15 @@
         </n-form-item>
 
         <n-form-item label="推送渠道">
-          <n-checkbox-group v-model:value="form.channels" class="!flex !gap-3">
-            <n-checkbox value="inbox">站内</n-checkbox>
-            <n-checkbox value="email">邮件</n-checkbox>
-            <n-checkbox value="feishu">飞书</n-checkbox>
-            <n-checkbox value="wechat">企微</n-checkbox>
-            <n-checkbox value="webhook">Webhook</n-checkbox>
+          <n-checkbox-group v-model:value="form.channels" class="!flex !flex-col !gap-2">
+            <n-checkbox value="inbox">站内 inbox</n-checkbox>
+            <n-checkbox value="email">邮件(SMTP,需在“推送”页配)</n-checkbox>
+            <n-checkbox value="feishu_dm">🧜 飞书个人单聊(需先在“推送”页绑定飞书账号)</n-checkbox>
+            <n-checkbox value="feishu">飞书群机器人(需在“推送”页填群 webhook)</n-checkbox>
+            <n-checkbox value="wechat">企微群机器人</n-checkbox>
+            <n-checkbox value="webhook">通用 Webhook</n-checkbox>
           </n-checkbox-group>
+          <p class="text-xs text-slate-400 mt-2">如需发送个人单聊,请先<a class="text-emerald-600 hover:underline" href="/settings">点击这里绑定飞书账号</a>。<br>推荐至少勾选 [站内 + 飞书个人单聊],保证不会丢消息。</p>
         </n-form-item>
 
         <div class="flex gap-3 mt-6">

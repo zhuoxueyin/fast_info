@@ -23,6 +23,17 @@
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
       <h2 class="text-lg font-semibold mb-2">📡 推送渠道配置</h2>
       <p class="text-xs text-slate-500 mb-4">配置后,在新建/编辑订阅时选择对应渠道即可接收推送。<span class="text-amber-600">邮件推送需管理员配置SMTP,飞书/企微/Webhook由用户自行填入webhook。</span></p>
+      <div class="bg-emerald-50 border border-emerald-200 rounded p-3 mb-4 text-sm flex items-center justify-between">
+        <div>
+          <strong>🚀 想推送到你自己飞书?</strong>
+          <span class="text-slate-500 text-xs ml-2">点下面按钮 → 飞书授权 → 以后订阅触发直接发到你手机</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span v-if="feishuBind.bound" class="text-emerald-600">✓ 已绑定 <code class="text-xs">{{ feishuBind.open_id?.slice(0, 12) }}…</code></span>
+          <n-button type="primary" size="small" @click="goBindFeishu">{{ feishuBind.bound ? '重新绑定' : '绑定飞书个人账号' }}</n-button>
+          <n-button v-if="feishuBind.bound" size="small" @click="unbindFeishu">解绑</n-button>
+        </div>
+      </div>
 
       <div class="grid gap-5 md:grid-cols-2">
         <div class="border border-slate-100 rounded-lg p-4">
@@ -112,7 +123,7 @@
 import { ref, onMounted, h, reactive } from 'vue'
 import { NButton, NDataTable, NEmpty, useMessage, NPopconfirm, NSwitch, NTag, NInput, type DataTableColumns } from 'naive-ui'
 import { useAuthStore } from '@/store/auth'
-import { api } from '@/lib/api'
+import { api, startFeishuBind, getFeishuBindStatus, unbindFeishu } from '@/lib/api'
 import type { Subscription, User } from '@/types/api'
 
 const auth = useAuthStore()
@@ -194,6 +205,36 @@ async function loadProfile() {
   } catch {}
 }
 
+// ===== 飞书 OAuth 单聊绑定 (Day 7 v0.4.1) =====
+const feishuBind = ref<{ bound: boolean; open_id?: string; name?: string; avatar?: string; bind_at?: string }>({ bound: false })
+
+async function loadFeishuBind() {
+  try {
+    const s = await getFeishuBindStatus()
+    feishuBind.value = s as any
+  } catch {}
+}
+
+async function goBindFeishu() {
+  try {
+    const r = await startFeishuBind()
+    window.location.href = r.oauth_url
+  } catch (e: any) {
+    msg.error(e?.data?.detail || '跳转失败,去 /settings 页绑定')
+  }
+}
+
+async function unbindFeishuAction() {
+  if (!confirm('解绑后,个人单聊推送会失败,确定吗?')) return
+  try {
+    await unbindFeishu()
+    await loadFeishuBind()
+    msg.success('已解绑')
+  } catch (e: any) {
+    msg.error(e?.data?.detail || '解绑失败')
+  }
+}
+
 async function saveProfile() {
   saving.value = true
   try {
@@ -249,5 +290,6 @@ async function toggleActive(row: Subscription, v: boolean) {
 onMounted(() => {
   load()
   loadProfile()
+  loadFeishuBind()
 })
 </script>
