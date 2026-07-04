@@ -1,6 +1,6 @@
 # AGENTS.md · fastInfo 项目入口
 
-> 面向 AI agent / 后续接手者 / 自己回看 —— **从 0 到产出,这份文档讲清一切。**
+> 面向 AI agent / 后续接手者 / 自己回看 -- **从 0 到产出,这份文档讲清一切。**
 >
 > 📌 **本文件必须随 day-end 迭代回填**(详见末尾 §13 「更新约定」)。
 >
@@ -10,10 +10,10 @@
 
 ## 0. 项目一句话
 
-**fastInfo = AI 驱动的资讯情报中枢** —— 用户用自然语言对话告诉系统"想看什么",AI 从统一资讯池里为他持续订阅 / 临时生成 / 主动推荐。
+**fastInfo = AI 驱动的资讯情报中枢** -- 用户用自然语言对话告诉系统"想看什么",AI 从统一资讯池里为他持续订阅 / 临时生成 / 主动推荐。
 
 **三个参照面**:
-1. **差异化 vs 传统资讯**(微博/头条/今日头条):那些人**主动推荐 / 用户主动浏览**;我们**AI 驱动 + 用户 NL 自定义 + AI 协同分发** —— 主动权反转。
+1. **差异化 vs 传统资讯**(微博/头条/今日头条):那些人**主动推荐 / 用户主动浏览**;我们**AI 驱动 + 用户 NL 自定义 + AI 协同分发** -- 主动权反转。
 2. **差异化 vs 传统 RSS 工具**(Feedly/Inoreader):那些人**手动选源 + 关键词过滤**;我们**NL 对话一句话建订阅**,无需懂 RSS 协议。
 3. **差异化 vs 算法推荐**(抖音/小红书即刻 feed):那些人**被动接信息流**;我们**主动表达 + 持续精确供给**。
 
@@ -106,7 +106,7 @@ return {scanned, matched, delivered}
 |---|---|---|
 | **DB** | MongoDB 8.x(本机已有)| `text` index search v1 / 后续 LanceDB 向量 v2 |
 | **队列** | Redis 7.x(Docker)| 已起容器 `fastinfo-redis`,6379,healthy |
-| **后端** | venv Python 3.12(本地)；ECS Linux Python 3.12 | 不用 3.14,ML 库兼容性差 |
+| **后端** | venv Python 3.12(本地);ECS Linux Python 3.12 | 不用 3.14,ML 库兼容性差 |
 | **Web 后端** | FastAPI 0.115+ (Day 2 实装)| + uvicorn 0.32+ |
 | **Web 前端** | 单页 HTML(Day 5+)| 走 FastAPI JSON |
 | **LLM 主** | M2.7-highspeed / M2.7 / M3(`api.minimaxi.com/v1`)| OpenAI 协议,`Authorization: Bearer` |
@@ -499,7 +499,7 @@ cd docs-site && npm run build         # 产物 → docs-site/.vitepress/dist/
 | `hot` 命令 `NoneType subscriptable` | items 缺 `published_at`,代码已 fallback 到 `fetched_at` |
 | `ingest` 没新增 | 检查 `MMX_API_KEY` / `MONGO_URL` / `KIMI_API_KEY`,看 daemon 日志 |
 | `connect ECONNREFUSED 27017` | `mongosh` 检查 Mongo 进程;Linux 用 `systemctl status mongod` |
-| Kimi 调用 401 | 走的协议不对 — **必须** `x-api-key` header + `anthropic-version: 2023-06-01`,endpoint `/v1/messages`(不是 `/v1/chat/completions`)|
+| Kimi 调用 401 | 走的协议不对 - **必须** `x-api-key` header + `anthropic-version: 2023-06-01`,endpoint `/v1/messages`(不是 `/v1/chat/completions`)|
 | `RuntimeError: There is no current event loop` | 用了 nested `asyncio.run`,改用本文件的 sync wrapper |
 | **API 返 502 空响应,但 `app.openapi()` 正常** | 本机 Clash / v2rayN 把 127.0.0.1 流量劫到 7892 返 502。`api_server.py` 默认会自动清代理;客户端进程需手动 `$env:HTTP_PROXY=''; $env:HTTPS_PROXY=''` 或 smoke 脚本已内置清代理 |
 | `winerror 10013` / `无法访问套接字` | 端口被系统策略拦,换 `--port 18080` 或加防火墙规则 |
@@ -601,7 +601,7 @@ await registry.aclose()
 | ADR-004 | Kimi 用 Anthropic 协议 | 实测 OpenAI 协议 401(`api.moonshot.cn/v1`),Anthropic 协议 200(`api.kimi.com/coding/v1`)|
 | ADR-005 | ingest / subs 解耦 | 性能:subs 毫秒级;语义:管理员视图 vs 用户视图 |
 | ADR-006 | 公共 items + per-user subs | 一篇文章一次摘要,多用户共享(broadcast 模型)|
-| ADR-007 | v1 MongoDB text,v2 LanceDB + DashScope | 降级路径明确 — 本机随时能用 v1,DashScope 用于 v2 精度提升 |
+| ADR-007 | v1 MongoDB text,v2 LanceDB + DashScope | 降级路径明确 - 本机随时能用 v1,DashScope 用于 v2 精度提升 |
 | ADR-008 | 自家 cron 解析(不上 APScheduler) | 5 行代码解决,少一个依赖 |
 | ADR-009 | 滚动交付:by-day 版本 | 用户明确要求 |
 | ADR-010 | GitHub 仓库 + GitHub Actions(2026-07-03) | 生态全、免费额度够、单人项目不需要复杂审批流 |
@@ -630,7 +630,7 @@ await registry.aclose()
 | ISSUE-002 | categories 软匹配是临时方案 | LLM 输出"AI芯片/融资"等细分类,跟用户 `categories=['AI']` 对不上 | Day 4 改 LLM prompt 输出固定二级标签 `["AI","科技","财经","汽车","娱乐","体育","其他"]` |
 | ISSUE-003 | 没有真正的 scheduler daemon | `subs run` 必须手动(CLI)或靠 ingest_daemon 触发外推 | Day 3 加 `subs_scheduler.py`(cron 触发)|
 | ISSUE-004 | ingest_daemon 进程级轮询非 systemd | ECS 上需要 systemd unit 兜底 | 文档已带 §5.3 部署说明,Day 3 加 unit 文件 |
-| ISSUE-005 | ~~FastAPI 未上~~ → **已 Day 2 实装,smoke 13/13 通过** | — | ✅ 已关闭 |
+| ISSUE-005 | ~~FastAPI 未上~~ → **已 Day 2 实装,smoke 13/13 通过** | - | ✅ 已关闭 |
 | ISSUE-006 | 没有 retrieval 层 v2 | 仅 MongoDB text search,精度受限 | Day 4 |
 | **NEW-1** | MongoDB text 索引对中文检索差 | "量子位" 0 命中,英文词正常 | Day 4 切 BGE-M3 / DashScope ⚠️ **未切,Day 5 不在范围** |
 | **NEW-2** | Redis 当前没被代码使用 | docker daemon 没起 + 代码无 Redis 调用,"队列/去重"是文档理想 | 推迟(Day 5+ 真用上时再接) |
@@ -745,6 +745,22 @@ python fastinfo.py stats                             # MongoDB 状态 / 索引
 
 ### 每日完工 checklist(强制)
 - [ ] 更新本文件 §1 / §11 / §13(Day 进度 / 新 issue / Last updated)
-- [ ] 追加当日 `memory/YYYY-MM-DD.md` §"今日交付" + §"明日计划"
+- [ ] 追加当日 `memory/YYYY-MM-DD.md` §“今日交付” + §“明日计划”
 - [ ] 把这次会话我亲口说出的新决策 / 定位原话 回填到 §0 / §10 ADR
-- [ ] 重要雷区 → 回填 `MEMORY.md` §"已知雷区"
+- [ ] 重要雷区 → 回填 `MEMORY.md` §“已知雷区”
+- [ ] **CHANGELOG 同步**(见 `docs/CHANGELOG-MAINTENANCE.md`)
+
+### 文档索引
+
+跨会话与版本看的东西:
+
+| 文档 | 看什么 |
+|---|---|
+| **`AGENTS.md`** (本文件) | 全局全貌 · 架构 · 状态 · ADR · 完整路径 |
+| **`docs/CHANGELOG.md`** | 跨版本变更轨迹(每个版本 add/change/fix) |
+| **`docs/CHANGELOG-MAINTENANCE.md`** | 怎么维护上面的 changelog |
+| **`docs/day{N}-deliverable.md`** | 单日交付完整复盘 |
+| **`docs/fastInfo-MVP-整体方案-v1.0.md`** | MVP 路径总账 |
+| **`docs/devops-研发部署流程升级-v1.0.md`** | DevOps 路线 |
+| **`~/.openclaw/workspace/MEMORY.md`** | OpenClaw 主会话长期记忆(不入 git) |
+| **`~/.openclaw/workspace/memory/YYYY-MM-DD.md`** | OpenClaw 每日工作日志(不入 git) |
