@@ -27,6 +27,9 @@ data/
 .env.local
 .env.*.local
 
+# Docker 差异覆盖(可能误填真实 key)
+docker/env.docker.local
+
 # 日志
 logs/
 *.log

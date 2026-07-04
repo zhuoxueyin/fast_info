@@ -1,21 +1,26 @@
 # fastInfo 本机 Docker 运行环境
 #
-# 启动核心服务:
+# 启动核心服务(默认):
 #   docker compose up -d --build
 #
-# 启动后台抓取/订阅调度:
-#   docker compose --profile workers up -d --build
+# 配置说明:
+#   - 共享配置(.env): API Key / SECRET / SMTP 等放项目根 .env
+#     复制 .env.example 为 .env 后填入
+#   - Docker 差异(env.docker.local): 容器内服务地址 / 端口
+#     复制 docker/env.docker.local.example 为 docker/env.docker.local
 #
-# 访问:
-#   Web:    http://127.0.0.1:8080
-#   API:    http://127.0.0.1:8000
-#   Docs:   http://127.0.0.1:8080/docs/
+# 访问(预发环境,主机端口):
+#   Web:    http://127.0.0.1:18080   (Nginx 主入口,推荐)
+#   API:    http://127.0.0.1:18000   (直连 FastAPI,调试用)
+#   Docs:   http://127.0.0.1:18080/docs/
+#
+# 本地开发端口对照见 docs/ports-分配方案.md
 
 services:
   mongo:
     image: ${DOCKER_REGISTRY_PREFIX:-}mongo:8
     ports:
-      - "${FASTINFO_MONGO_PORT:-27018}:27017"
+      - "27018:27017"                          # S-Mongo: 主机 27018 → 容器 27017(本地 27017)
     volumes:
       - mongo_data:/data/db
     restart: unless-stopped
@@ -28,7 +33,7 @@ services:
   redis:
     image: ${DOCKER_REGISTRY_PREFIX:-}redis:7-alpine
     ports:
-      - "${FASTINFO_REDIS_PORT:-6379}:6379"
+      - "6380:6379"                           # S-Redis: 主机 6380 → 容器 6379(本地 6379)
     volumes:
       - redis_data:/data
     command:
@@ -56,16 +61,17 @@ services:
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
     env_file:
-      - docker/env.docker.example
-    ports:
-      - "${FASTINFO_API_PORT:-8000}:8000"
+      - docker/env.docker.local          # Docker 差异值(覆盖 .env 里的同名 key)
     volumes:
       - api_data:/app/data
+      - ./.env:/app/.env:ro              # 共享 .env(API Key / SECRET 等)
     depends_on:
       mongo:
         condition: service_healthy
       redis:
         condition: service_healthy
+    ports:
+      - "18000:8000"                          # S-API: 主机 18000 → 容器 8000(本地 8000)
     restart: unless-stopped
 
   web:
@@ -74,13 +80,16 @@ services:
       dockerfile: docker/web.Dockerfile
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
-    ports:
-      - "${FASTINFO_WEB_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_started
+    ports:
+      - "18080:80"                           # S-Web: 主机 18080 → 容器 80(本地无)
     restart: unless-stopped
 
+  # ============================================================
+  # 后台 worker(默认随 api/web 一起拉起)
+  # ============================================================
   ingest_daemon:
     build:
       context: .
@@ -88,17 +97,16 @@ services:
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
     env_file:
-      - docker/env.docker.example
+      - docker/env.docker.local
     command: ["python", "scripts/ingest_daemon.py", "--interval", "1800", "--limit", "8"]
     volumes:
       - api_data:/app/data
+      - ./.env:/app/.env:ro
     depends_on:
       mongo:
         condition: service_healthy
       redis:
         condition: service_healthy
-    profiles:
-      - workers
     restart: unless-stopped
 
   subs_scheduler:
@@ -108,17 +116,16 @@ services:
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
     env_file:
-      - docker/env.docker.example
+      - docker/env.docker.local
     command: ["python", "scripts/subs_scheduler.py", "--interval", "60"]
     volumes:
       - api_data:/app/data
+      - ./.env:/app/.env:ro
     depends_on:
       mongo:
         condition: service_healthy
       redis:
         condition: service_healthy
-    profiles:
-      - workers
     restart: unless-stopped
 
 volumes:

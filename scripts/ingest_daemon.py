@@ -22,10 +22,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+# 加载 .env(本地开发 + Docker volume 挂 /app/.env 都覆盖)
+from _env import load_env
+load_env()
 
 
-async def run_once(args) -> int:
-    """执行一次完整 ingest 流程"""
+async def run_once(args) -> dict:
+    """执行一次完整 ingest 流程。
+
+    返回 dict 便于 API 携带 warning 字段:
+        {
+            "fetched": int,        # 抓回原始条数
+            "new": int,            # 去重后待处理条数
+            "summarized": int,     # 成功摘要条数
+            "failed": int,         # 摘要失败条数
+            "warning": str,        # 警告原因(如 MMX_API_KEY 未设、源全失败等), 空 = 无
+        }
+    """
     import uuid
     from crawler.collectors import fetch_all
     from storage.mongo_writer import (
@@ -38,7 +53,15 @@ async def run_once(args) -> int:
     run_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc)
     print(f"[{started_at.isoformat()}] ingest start (limit={args.limit}) run_id={run_id}")
-    ensure_indexes()
+
+    empty_result = lambda w="": {"fetched": 0, "new": 0, "summarized": 0, "failed": 0, "warning": w}
+
+    try:
+        ensure_indexes()
+    except Exception as e:
+        print(f"  ✗ ensure_indexes failed: {e}")
+        return empty_result(f"ensure_indexes failed: {e}")
+
     done = get_done_urls()
     recent_titles = get_recent_title_hashes(days=7)
 
@@ -50,11 +73,11 @@ async def run_once(args) -> int:
     print(f"  fetched {len(items)}, new {before_dedup}, after title-dedup {len(new_items)}")
 
     if not new_items:
-        return 0
+        return empty_result("没有新内容(可能全部已抓过,或所有源都返回空)")
 
-    if not os.environ.get("MMX_API_KEY"):
-        print("  ✗ MMX_API_KEY not set")
-        return 0
+    if not os.environ.get("MMX_API_KEY") and not os.environ.get("KIMI_API_KEY"):
+        print("  ✗ MMX_API_KEY / KIMI_API_KEY 都没设")
+        return empty_result("MMX_API_KEY 和 KIMI_API_KEY 都未配置 — 无法生成摘要")
 
     registry = build_default_registry()
     sem = asyncio.Semaphore(3)
@@ -194,7 +217,16 @@ async def run_once(args) -> int:
     except Exception as e:
         print(f"  ⚠ 写 task_runs 失败(忽略): {e}")
 
-    return completed
+    warning = ""
+    if completed == 0 and failed > 0:
+        warning = f"全部 {failed} 条 LLM 摘要失败(查 daemon 日志)"
+    return {
+        "fetched": len(items),
+        "new": len(new_items),
+        "summarized": completed,
+        "failed": failed,
+        "warning": warning,
+    }
 
 
 def log_line(msg: str, log_file: Path):
@@ -220,8 +252,10 @@ async def main():
 
     if args.once:
         try:
-            n = await run_once(args)
-            print(f"\n✓ ingest 一次完成,新增 {n} 条")
+            r = await run_once(args)
+            print(f"\n✓ ingest 一次完成,新增 {r['summarized']} 条")
+            if r.get("warning"):
+                print(f"  ⚠ warning: {r['warning']}")
         except Exception as e:
             log_line(f"✗ ingest error: {e}\n{traceback.format_exc()}", log_file)
             sys.exit(1)

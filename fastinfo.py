@@ -26,6 +26,11 @@ import sys
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+sys.path.insert(0, os.path.dirname(__file__))
+
+# 加载 .env(本地开发 + Docker volume 挂 /app/.env 都覆盖)
+from _env import load_env
+load_env()
 
 from storage.mongo_writer import (
     get_sync_client, ensure_indexes, count_items, stats,

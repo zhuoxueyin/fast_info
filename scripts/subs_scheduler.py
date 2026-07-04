@@ -25,6 +25,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+# 加载 .env(本地开发 + Docker volume 挂 /app/.env 都覆盖)
+from _env import load_env
+load_env()
 
 DEFAULT_LOG = "data/subs-scheduler.log"
 
