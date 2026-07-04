@@ -6,7 +6,7 @@ fastInfo · FastAPI 实例
     python scripts/api_server.py
 
 打开浏览器:
-    http://127.0.0.1:8000/docs            ← Swagger UI
+    http://127.0.0.1:8000/docs            ← Swagger UI(本地默认,见 docs/ports-分配方案.md)
     http://127.0.0.1:8000/redoc           ← ReDoc
 
 CORS:对 127.0.0.1:* 全部开(开发用),生产请收紧

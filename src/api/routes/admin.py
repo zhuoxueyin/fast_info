@@ -162,7 +162,12 @@ def admin_ingest_run(
     limit: int = Query(8, ge=1, le=30),
     admin: dict = Depends(require_admin),
 ):
-    """管理员:手动触发一次抓取(同步等结果)"""
+    """管理员:手动触发一次抓取(同步等结果)
+
+    返回字段:
+      - run_id / items_fetched / items_summarized / items_failed
+      - warning: 字符串,空=成功;非空=原因(如 MMX_API_KEY 未设)
+    """
     import asyncio
     from scripts.ingest_daemon import run_once
 
@@ -170,15 +175,17 @@ def admin_ingest_run(
         pass
     args = _Args()
     args.limit = limit
-    n = asyncio.run(run_once(args))
+    r = asyncio.run(run_once(args))
     return {
         "run_id": "manual_" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"),
-        "items_fetched": n,
-        "items_summarized": n,
-        "items_failed": 0,
-        "summarized": n,
-        "fetched": n,
-        "failed": 0,
+        "items_fetched": r["fetched"],
+        "items_new": r["new"],
+        "items_summarized": r["summarized"],
+        "items_failed": r["failed"],
+        "summarized": r["summarized"],
+        "fetched": r["fetched"],
+        "failed": r["failed"],
+        "warning": r.get("warning", ""),
     }
 
 

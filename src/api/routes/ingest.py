@@ -27,11 +27,12 @@ async def run_ingest_endpoint(
         pass
     args = _Args()
     args.limit = limit
-    n = await run_once(args)
+    r = await run_once(args)
     return IngestResponse(
-        fetched=n,
-        new=n,
-        summarized=n,
-        failed=0,
-        errors=[],
+        fetched=r["fetched"],
+        new=r["new"],
+        summarized=r["summarized"],
+        failed=r["failed"],
+        errors=[r["warning"]] if r.get("warning") else [],
+        warning=r.get("warning", ""),
     )
