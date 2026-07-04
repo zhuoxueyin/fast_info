@@ -14,6 +14,39 @@
 
 ---
 
+## [v0.5.0] - 2026-07-04 · Day 8 v0.5.0 推送升级
+
+**定位**:推送结构实成升级 · 同一份订阅内容不同渠道通用模板。
+
+### Added
+- **`src/subscription/format_push.py`** (新建8KB):统一推送模板
+  - `format_html(sub, items, inbox_url)` → 邮件 / 站内 HTML 卡片
+  - `format_markdown(sub, items, inbox_url)` → 通用 webhook / 企微
+  - `format_feishu_card(sub, items, inbox_url)` → 飞书 interactive card
+  - 每条 item 推送必含:原文 URL · source · category · fetched_at · relevance · summary · title
+  - XSS 转义 (`_esc()`)、长度裁断(防 256 字符限制)
+- **`notifier.send / send_all` 接管 keyword-only kwargs**:
+  - `body_md / body_html / card` 可选参数
+  - EmailNotifier 优先 `body_html`
+  - WechatNotifier 优先 `body_md`,限 4000 字符
+  - FeishuNotifier (群) 优先 `card` fallback markdown
+  - WebhookNotifier 优先 `body_md` + 加格式提示
+  - FeishuDMNotifier 走 card
+- **`_render_and_send()`** 升级:同时生成 3 种体,传给 `send_all`
+
+### Changed
+- 推送卡现成内容:原文 URL 详细为 button + 摘要 + 译 + 源 + 时间
+- 底部统一加 "📥 在 fastInfo 网站查看全部" 入口(可选 inbox_url)
+
+### Notes
+- ✅ 后端推送升级完整可用
+- ⏸ InboxPage / MobileInbox 卡片视图 留 P2(明天接手)
+- ⏸ inbox API 分块参数 留 P2(明天接手)
+
+**Commits**: `3f6488e`
+
+---
+
 ## [Unreleased] / v0.4.2
 
 > 还在开发,下次 commit 时整段迁移到具体版本号。
