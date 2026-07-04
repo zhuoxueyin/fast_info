@@ -111,6 +111,57 @@ docker compose up 时,容器内环境变量叠加顺序(高 → 低):
 
 ---
 
+## 2.5. 分支策略与三环境对应
+
+> **P 正式环境只部署 `master` 分支。** L/S 环境可跑 feature 分支做自测，但上线代码必须通过 PR/Merge 合入 master。
+
+### 2.5.1 三环境对应分支
+
+| 环境 | 代码位置 | 分支要求 | 用途 |
+|---|---|---|---|
+| **L 本地** | 本机 venv | feature / 任意 | 开发自测、快速反馈 |
+| **S 预发** | 本机 Docker | feature / 任意 | 完整 6 服务验证，通常在 feature 合并前跑一遍 |
+| **P 正式** | 云服务器 Docker | **必须 master** | 线上用户访问的唯一代码 |
+
+### 2.5.2 推荐 Git Flow
+
+```text
+本机:  git checkout feat/xxx
+       ... 改代码 / 本地 L 模式测试 ...
+       git commit -m "..."
+       git push origin feat/xxx
+       
+       # 可选：本机 S 模式完整验证
+       bash scripts/deploy-staging.sh
+       
+       # 在 GitHub 提 PR 合并到 master
+       # (单人项目也可本地 merge 后 push)
+
+服务器: ssh root@<SERVER_IP>
+       cd /opt/fast_info
+       git checkout master
+       git pull origin master
+       bash scripts/deploy-prod.sh
+```
+
+### 2.5.3 为什么 P 环境只保留一个目录
+
+**不要在服务器上为不同分支建多个项目目录。** 原因:
+
+- Docker volumes(`mongo_data` / `redis_data` / `api_data`)按项目目录隔离，多目录会导致数据分裂
+- `.env` 需要维护多份，容易配错
+- 端口 18080/18000 只有一套，多目录会冲突
+
+### 2.5.4 `deploy-prod.sh` 的分支保护
+
+脚本已内置分支检查:
+
+- 当前分支不是 `master` 时，**报错退出**，提示切换到 master
+- 指定 commit 部署时(`bash scripts/deploy-prod.sh <commit-sha>`)可跳过 master 检查，用于紧急回滚
+- 同步代码后用 `git clean -fdx -e .env -e docker/env.docker.local` 清理未跟踪文件，**保留 env 文件**
+
+---
+
 ## 3. 首次部署到 P 环境(云服务器) — 完整指令
 
 ### 3.0 必须 User 提供(在开始前准备好)
@@ -352,6 +403,10 @@ bash scripts/deploy-staging.sh
 ssh root@<SERVER_IP>
 cd /opt/fast_info
 
+# 确保在 master 分支(P 环境强制要求)
+git checkout master
+git pull origin master
+
 # 首次部署 / 日常迭代
 bash scripts/deploy-prod.sh
 
@@ -361,18 +416,20 @@ bash scripts/deploy-prod.sh a1b2c3d4
 
 **期望输出**:
 ```
-==> 0/5 前置检查
+==> 0/6 前置检查
    ✅ 全部通过
-==> 1/5 同步代码
+==> 1/6 分支检查
+   ✅ 当前分支:master
+==> 2/6 同步代码
    当前 commit:a1b2c3d
-==> 2/5 build 新镜像(5-15 分钟)
+==> 3/6 build 新镜像(5-15 分钟)
    ✅ build 完成
-==> 3/5 restart containers
-==> 4/5 健康检查
+==> 4/6 restart containers
+==> 5/6 健康检查
    ✅ API /healthz 200
    ✅ /api/stats 200
    ✅ 全部 6 个容器 Up
-==> 5/5 ✅ 部署完成 · a1b2c3d · 2026-07-05T10:30:00+08:00
+==> 6/6 ✅ 部署完成 · a1b2c3d · 2026-07-05T10:30:00+08:00
 ```
 
 ### 4.4 三脚本对照速查
@@ -581,18 +638,21 @@ P 正式模式(云服务器,首次)
 [ ] 服务器 OS 是 Ubuntu 22.04+
 [ ] docker / docker compose 都装好
 [ ] /opt/fast_info 有完整代码(包括 scripts/deploy-{local,staging,prod}.sh)
+[ ] 当前在 master 分支(`git branch --show-current`)
 [ ] .env 填了 MMX_API_KEY / FASTINFO_SECRET / FASTINFO_ADMIN_PASSWORD
 [ ] docker env.docker.local 复制自 .example
 [ ] 腾讯云防火墙放通 TCP 18080/22(18000 可选)
-[ ] bash scripts/deploy-prod.sh 走完 5 阶段
+[ ] bash scripts/deploy-prod.sh 走完 6 阶段
 [ ] curl 127.0.0.1:18080/healthz 200
 [ ] curl 127.0.0.1:18080/api/stats 200
 [ ] 浏览器访问 http://<SERVER_IP>:18080/ 看到前端
 
 P 正式模式(后续迭代)
-[ ] 本机 git commit + git push origin master
-[ ] 服务器 bash scripts/deploy-prod.sh
-[ ] 5 阶段全过,显示"部署完成 · commit xxx"
+[ ] 本机 feature 分支开发 + 自测
+[ ] push feature → PR/Merge 到 master
+[ ] 服务器 `git checkout master && git pull origin master`
+[ ] bash scripts/deploy-prod.sh
+[ ] 6 阶段全过,显示"部署完成 · commit xxx"
 [ ] /healthz 仍 200
 [ ] UI 显示新代码生效(可手动查某一处代码差异)
 ```
