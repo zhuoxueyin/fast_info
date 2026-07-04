@@ -1,6 +1,6 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
-const routes = [
+const routes: RouteRecordRaw[] = [
   { path: '/', component: () => import('@/pages/HomePage.vue'), name: 'home' },
   { path: '/hot', component: () => import('@/pages/HotPage.vue'), name: 'hot' },
   { path: '/search', component: () => import('@/pages/SearchPage.vue'), name: 'search' },
@@ -9,8 +9,11 @@ const routes = [
   { path: '/register', component: () => import('@/pages/RegisterPage.vue'), name: 'register' },
   { path: '/me', component: () => import('@/pages/MePage.vue'), name: 'me', meta: { auth: true } },
   { path: '/me/inbox', component: () => import('@/pages/InboxPage.vue'), name: 'inbox', meta: { auth: true } },
-  { path: '/settings', component: () => import('@/pages/SettingsPage.vue'), name: 'settings', meta: { auth: true } },
+  { path: '/me/subs', component: () => import('@/pages/SubsPage.vue'), name: 'subs', meta: { auth: true } },
+  { path: '/me/settings', component: () => import('@/pages/SettingsPage.vue'), name: 'settings', meta: { auth: true } },
   { path: '/subs/new', component: () => import('@/pages/NewSubPage.vue'), name: 'sub-new', meta: { auth: true } },
+  // 兼容旧路由重定向
+  { path: '/settings', redirect: '/me/settings' },
   { path: '/topic/:tid', component: () => import('@/pages/TopicDetail.vue'), name: 'topic-detail', props: true },
   { path: '/m/topic/:tid', component: () => import('@/pages/m/MobileTopicDetail.vue'), name: 'mobile-topic-detail', props: true },
   { path: '/admin', component: () => import('@/pages/admin/AdminHome.vue'), name: 'admin', meta: { auth: true, admin: true } },

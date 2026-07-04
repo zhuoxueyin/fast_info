@@ -93,11 +93,22 @@ async function triggerIngest() {
   ingesting.value = true
   ingestResult.value = null
   try {
-    const r = await api<{ run_id: string; items_fetched: number; items_summarized: number; items_failed: number }>(
+    const r = await api<{
+      run_id: string;
+      items_fetched: number;
+      items_summarized: number;
+      items_failed: number;
+      warning?: string;
+    }>(
       `/admin/ingest/run`, { method: 'POST', query: { limit: ingestLimit.value }, timeout: 120000 }
     )
     ingestResult.value = r
-    msg.success('完成')
+    // 0 条 / 有 warning → 弹 warn,不弹"成功"绿框
+    if (r.items_summarized === 0 || r.warning) {
+      msg.warning(`完成但 0 条新增: ${r.warning || '无内容或全部已抓过'}`, { duration: 6000 })
+    } else {
+      msg.success(`完成: 新增 ${r.items_summarized} 条`)
+    }
     load()
   } catch (e: any) {
     msg.error(e?.data?.detail || '运行失败')
