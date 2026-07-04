@@ -47,7 +47,6 @@ def init_admin(username: str, password: str | None, reset: bool):
     pw = password or random_password()
     pw_hash = hash_password(pw)
     doc = {
-        "_id": f"u_{username}",
         "username": username,
         "password_hash": pw_hash,
         "email": "",
@@ -57,7 +56,9 @@ def init_admin(username: str, password: str | None, reset: bool):
         "created_at": datetime.now(timezone.utc),
         "last_login_at": None,
     }
-    users.replace_one({"_id": doc["_id"]}, doc, upsert=True)
+    # _id 由 MongoDB 自动生成 ObjectId，与 register 流程一致
+    result = users.insert_one(doc)
+    print(f"  _id: {result.inserted_id}")
 
     print()
     print("=" * 60)

@@ -103,7 +103,11 @@ async def run_my_subscription(sub_id: str, user: dict = Depends(require_user)):
         raise HTTPException(status_code=404, detail="订阅不存在")
     if sub.get("user_id") != user["id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="非本人订阅,无权操作")
-    result = await run_subscription(sub)
+    try:
+        result = await run_subscription(sub)
+    except Exception as e:
+        update_subscription_after_run(sub_id, success=False, error=str(e))
+        raise HTTPException(status_code=500, detail=f"订阅执行失败: {e}")
     update_subscription_after_run(sub_id, success=True)
     return RunSubscriptionResponse(subscription_id=sub_id, **result)
 

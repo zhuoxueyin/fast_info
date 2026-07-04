@@ -4,6 +4,7 @@ export default defineConfig({
   title: 'fastInfo · 文档',
   description: '个人化 AI 情报中枢 · API 与使用指南',
   cleanUrls: true,
+  base: '/docs/',
   lang: 'zh-CN',
   head: [
     ['meta', { name: 'theme-color', content: '#10B981' }],

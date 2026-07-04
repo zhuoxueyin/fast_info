@@ -1,9 +1,7 @@
-"""fastInfo · notifier 测试(Day 7 v0.4.0)
+"""fastInfo · notifier 测试
 
-一键测试 5 个渠道是否通,无论用户配置是不是完整。
+一键测试渠道是否通,无论用户配置是不是完整。
 返回 {channel: {ok: bool, message: str}}。
-
-注意:测试用 stub 内容,不真订阅触发。
 """
 from __future__ import annotations
 import os
@@ -25,6 +23,10 @@ def test_channel(name: str, user: Optional[dict] = None, item: Optional[dict] = 
     user = user or {
         "username": "test_user",
         "email": os.environ.get("TEST_EMAIL", ""),
+        "smtp_host": os.environ.get("SMTP_HOST", "smtp.qq.com"),
+        "smtp_port": int(os.environ.get("SMTP_PORT", "465")),
+        "smtp_user": os.environ.get("SMTP_USER", ""),
+        "smtp_pass": os.environ.get("SMTP_PASS", ""),
         "feishu_webhook": os.environ.get("TEST_FEISHU_WEBHOOK", ""),
         "wechat_webhook": os.environ.get("TEST_WECHAT_WEBHOOK", ""),
         "webhook_url": os.environ.get("TEST_WEBHOOK_URL", ""),
@@ -38,6 +40,7 @@ def test_channel(name: str, user: Optional[dict] = None, item: Optional[dict] = 
     n = get(name)
     if n is None:
         return {"ok": False, "message": f"未知渠道 '{name}',可选:{available_channels()}"}
+
     try:
         ok = n.send(user, _test_subject(), _test_content(), [item])
         return {"ok": ok, "message": "发送成功" if ok else "发送失败(看 stdout)"}
@@ -46,7 +49,7 @@ def test_channel(name: str, user: Optional[dict] = None, item: Optional[dict] = 
 
 
 def test_all(user: Optional[dict] = None) -> dict:
-    """测试所有 5 个渠道"""
+    """测试所有渠道"""
     out = {}
     for ch in available_channels():
         out[ch] = test_channel(ch, user=user)

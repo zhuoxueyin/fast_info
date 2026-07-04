@@ -2,7 +2,9 @@
   <div>
     <div class="flex items-center justify-between mb-4">
       <h1 class="text-2xl font-bold text-slate-900">📥 我的推送 ({{ total }})</h1>
-      <n-button @click="$router.push('/me')">← 个人中心</n-button>
+      <div class="flex gap-2">
+        <n-button @click="$router.push('/me')">← 个人中心</n-button>
+      </div>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex gap-3 items-center">

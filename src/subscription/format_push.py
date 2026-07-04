@@ -3,7 +3,7 @@
 快快阅读:同一份推送内容需要适配 4 个渠道:
   - inbox 站内 (Mongo 存为 subscriptions_delivered)
   - email SMTP (HTML)
-  - feishu / feishu_dm (interactive card)
+  - feishu (interactive card)
   - webhook (Markdown)
   - wechat (Markdown)
 

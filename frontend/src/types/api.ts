@@ -71,33 +71,7 @@ export interface SourceStatus {
   healthy: boolean
 }
 
-export interface SourceConfigItem {
-  id: string
-  name: string
-  kind: 'rss' | 'kol' | string
-  url: string
-  default_interval_sec: number
-  category_l1: string
-  enabled: boolean
-}
 
-export interface SourceConfigResponse {
-  rss: SourceConfigItem[]
-  kol: SourceConfigItem[]
-  all_enabled: boolean
-}
-
-export interface LLMProviderInfo {
-  priority: number
-  weight: number
-  model?: string
-  max_tokens?: number
-  protocol?: string
-}
-
-export interface LLMHealth {
-  groups: Record<string, Record<string, LLMProviderInfo>>
-}
 
 export interface BannerConfig {
   categories: string[]

@@ -24,9 +24,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/m', component: () => import('@/pages/m/MobileLayout.vue') },
   { path: '/m/hot', component: () => import('@/pages/m/MobileHot.vue') },
   { path: '/m/items/:id', component: () => import('@/pages/m/MobileItem.vue'), props: true },
-  { path: '/m/me', component: () => import('@/pages/m/MobileMe.vue') },
-  { path: '/m/me/inbox', component: () => import('@/pages/m/MobileInbox.vue') },
-  { path: '/m/me/subs', component: () => import('@/pages/m/MobileSubs.vue') },
+  { path: '/m/me', component: () => import('@/pages/m/MobileMe.vue'), meta: { auth: true } },
+  { path: '/m/me/inbox', component: () => import('@/pages/m/MobileInbox.vue'), meta: { auth: true } },
+  { path: '/m/me/subs', component: () => import('@/pages/m/MobileSubs.vue'), meta: { auth: true } },
   { path: '/m/login', component: () => import('@/pages/m/MobileLogin.vue') },
   { path: '/:pathMatch(.*)*', component: () => import('@/pages/NotFoundPage.vue'), name: '404' },
 ]

@@ -5,7 +5,6 @@
   - feishu : 飞书自定义机器人 webhook
   - wechat : 企业微信机器人 webhook
   - webhook: 通用 webhook (POST JSON)
-  - inbox  : 默认站内收件箱
 
 设计:
   Notifier.register("email", EmailNotifier())
@@ -168,79 +167,6 @@ def _post_webhook(url: str, payload: dict, tag: str) -> bool:
         return False
 
 
-# ============================================================
-# Feishu DM (个人单聊) — Day 7 v0.4.0 加(需在前段)
-# ============================================================
-import time as _time
-
-class FeishuDMNotifier(Notifier):
-    """飞书应用→个人单聊。需 LARK_APP_ID + LARK_APP_SECRET env。
-    调 im/v1/messages,需要应用有 im:message 权限。
-    """
-    name = "feishu_dm"
-
-    _TOKEN_CACHE = {"token": "", "exp": 0.0}
-
-    def _get_token(self) -> str:
-        app_id = os.environ.get("LARK_APP_ID", "")
-        app_secret = os.environ.get("LARK_APP_SECRET", "")
-        if not app_id or not app_secret:
-            return ""
-        now = _time.time()
-        if self._TOKEN_CACHE["token"] and self._TOKEN_CACHE["exp"] > now:
-            return self._TOKEN_CACHE["token"]
-        try:
-            base = os.environ.get("FEISHU_BASE_URL", "https://open.feishu.cn")
-            r = httpx.post(
-                f"{base}/open-apis/auth/v3/tenant_access_token/internal",
-                json={"app_id": app_id, "app_secret": app_secret},
-                timeout=10,
-            )
-            data = r.json()
-            if data.get("code") != 0:
-                return ""
-            tok = data.get("tenant_access_token", "")
-            self._TOKEN_CACHE["token"] = tok
-            self._TOKEN_CACHE["exp"] = now + 20 * 60
-            return tok
-        except Exception as e:
-            print(f"  [feishu_dm] token err: {type(e).__name__}: {e}")
-            return ""
-
-    def send(
-        self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
-    ):
-        open_id = user.get("feishu_open_id") or user.get("open_id") or ""
-        if not open_id:
-            print("  [feishu_dm] 未配 feishu_open_id,跳过")
-            return False
-        token = self._get_token()
-        if not token:
-            print("  [feishu_dm] LARK_APP_ID/SECRET 未设或 token 失败")
-            return False
-        card = {
-            "header": {"title": {"tag": "plain_text", "content": subject}, "template": "green"},
-            "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": content_html[:1800]}}],
-        }
-        try:
-            base = os.environ.get("FEISHU_BASE_URL", "https://open.feishu.cn")
-            r = httpx.post(
-                f"{base}/open-apis/im/v1/messages",
-                params={"receive_id_type": "open_id"},
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
-                json={"receive_id": open_id, "msg_type": "interactive", "card": card},
-                timeout=10,
-            )
-            data = r.json()
-            if data.get("code") == 0:
-                print(f"  [feishu_dm] → {open_id[:8]}... ✓")
-                return True
-            print(f"  [feishu_dm] ✗ code={data.get('code')} msg={data.get('msg')}")
-            return False
-        except Exception as e:
-            print(f"  [feishu_dm] ✗ {type(e).__name__}: {str(e)[:120]}")
-            return False
-
 
 # ============================================================
 # 注册表
@@ -248,7 +174,6 @@ class FeishuDMNotifier(Notifier):
 _REGISTRY: dict[str, Notifier] = {
     "email": EmailNotifier(),
     "feishu": FeishuNotifier(),
-    "feishu_dm": FeishuDMNotifier(),   # Day 7 v0.4.0 新增
     "wechat": WechatWorkNotifier(),
     "webhook": WebhookNotifier(),
 }

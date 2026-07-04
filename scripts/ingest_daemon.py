@@ -45,16 +45,32 @@ async def run_once(args) -> dict:
     from crawler.collectors import fetch_all
     from storage.mongo_writer import (
         upsert_item_async, get_done_urls, get_recent_title_hashes,
-        ensure_indexes, record_task_run,
+        ensure_indexes, create_task_run_pending, update_task_run_finished,
     )
     from llm.model_registry import build_default_registry
     import re as _re, json as _json
 
-    run_id = str(uuid.uuid4())
+    # Day 5: 允许外部传入 run_id(给 API 异步触发用,保证返回的 run_id
+    # 跟写入 task_runs 的是同一个 uuid)
+    run_id = getattr(args, "run_id", None) or str(uuid.uuid4())
     started_at = datetime.now(timezone.utc)
-    print(f"[{started_at.isoformat()}] ingest start (limit={args.limit}) run_id={run_id}")
+    trigger = getattr(args, "trigger", "scheduled")
+    operator = getattr(args, "operator", None)
+    print(f"[{started_at.isoformat()}] ingest start (limit={args.limit}) run_id={run_id} trigger={trigger}")
 
     empty_result = lambda w="": {"fetched": 0, "new": 0, "summarized": 0, "failed": 0, "warning": w}
+
+    # Day 5: 立刻写一条 status=running 占位记录,让前端轮询能看到
+    try:
+        create_task_run_pending({
+            "run_id": run_id,
+            "started_at": started_at,
+            "trigger": trigger,
+            "operator": operator,
+            "limit": getattr(args, "limit", 8),
+        })
+    except Exception as e:
+        print(f"  ⚠ create_task_run_pending failed(忽略): {e}")
 
     try:
         ensure_indexes()
@@ -73,6 +89,18 @@ async def run_once(args) -> dict:
     print(f"  fetched {len(items)}, new {before_dedup}, after title-dedup {len(new_items)}")
 
     if not new_items:
+        # Day 5: 即便没新内容也要 update task_runs(否则状态卡 running)
+        try:
+            update_task_run_finished(run_id, {
+                "finished_at": datetime.now(timezone.utc),
+                "status": "done",
+                "items_fetched": len(items),
+                "items_summarized": 0,
+                "items_failed": 0,
+                "warning": "没有新内容(可能全部已抓过,或所有源都返回空)",
+            })
+        except Exception:
+            pass
         return empty_result("没有新内容(可能全部已抓过,或所有源都返回空)")
 
     if not os.environ.get("MMX_API_KEY") and not os.environ.get("KIMI_API_KEY"):
@@ -201,25 +229,21 @@ async def run_once(args) -> dict:
             ratio = src_new / total_new
             per_source[src]["summarized"] = int(completed * ratio)
             per_source[src]["errors"] = int(failed * ratio)
+    warning = ""
+    if completed == 0 and failed > 0:
+        warning = f"全部 {failed} 条 LLM 摘要失败(查 daemon 日志)"
     try:
-        record_task_run({
-            "run_id": run_id,
-            "started_at": started_at,
+        update_task_run_finished(run_id, {
             "finished_at": finished_at,
-            "trigger": "scheduled",
-            "operator": None,
+            "status": "done",
             "items_fetched": len(items),
             "items_summarized": completed,
             "items_failed": failed,
             "per_source": per_source,
-            "llm_breakdown": {},
+            "warning": warning,
         })
     except Exception as e:
-        print(f"  ⚠ 写 task_runs 失败(忽略): {e}")
-
-    warning = ""
-    if completed == 0 and failed > 0:
-        warning = f"全部 {failed} 条 LLM 摘要失败(查 daemon 日志)"
+        print(f"  ⚠ update_task_run_finished 失败(忽略): {e}")
     return {
         "fetched": len(items),
         "new": len(new_items),

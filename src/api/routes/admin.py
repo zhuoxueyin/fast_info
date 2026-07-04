@@ -8,7 +8,7 @@ fastInfo · 管理员路由
 """
 from datetime import datetime, timezone
 from typing import List
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from pydantic import BaseModel
 
 from api.deps_admin import require_admin
@@ -16,6 +16,7 @@ from storage.mongo_writer import (
     get_db,
     get_recent_task_runs,
     get_task_run,
+    get_task_run_status,
     get_source_status_24h,
     count_items,
     DEFAULT_DB,
@@ -158,77 +159,91 @@ def admin_stats(admin: dict = Depends(require_admin)):
 
 
 @router.post("/ingest/run")
-def admin_ingest_run(
+async def admin_ingest_run(
     limit: int = Query(8, ge=1, le=30),
+    background: BackgroundTasks = None,  # FastAPI 注入
     admin: dict = Depends(require_admin),
 ):
-    """管理员:手动触发一次抓取(同步等结果)
+    """管理员:手动触发一次抓取(Day 5 改造为异步)。
 
-    返回字段:
-      - run_id / items_fetched / items_summarized / items_failed
-      - warning: 字符串,空=成功;非空=原因(如 MMX_API_KEY 未设)
+    立刻返回 {run_id, status: "running", limit},run_once 在后台跑。
+    前端用 GET /admin/ingest/task/{run_id} 轮询直到 status="done"。
     """
     import asyncio
+    import uuid
     from scripts.ingest_daemon import run_once
 
     class _Args:
         pass
     args = _Args()
     args.limit = limit
-    r = asyncio.run(run_once(args))
+    args.trigger = "manual"
+    args.operator = admin.get("username") or str(admin.get("_id"))
+    args.run_id = str(uuid.uuid4())  # Day 5:传给 run_once,保证 task_runs run_id 一致
+
+    run_id = args.run_id
+
+    async def _bg():
+        try:
+            await run_once(args)
+        except Exception as e:
+            from storage.mongo_writer import update_task_run_finished
+            update_task_run_finished(run_id, {
+                "finished_at": datetime.now(timezone.utc),
+                "status": "failed",
+                "warning": f"后台任务异常: {type(e).__name__}: {str(e)[:200]}",
+            })
+            print(f"[ingest_bg] run_id={run_id} crashed: {e}", flush=True)
+
+    # 先写一条 running 占位记录(让前端立刻能查到)
+    from storage.mongo_writer import create_task_run_pending
+    create_task_run_pending({
+        "run_id": run_id,
+        "started_at": datetime.now(timezone.utc),
+        "trigger": "manual",
+        "operator": args.operator,
+        "limit": limit,
+    })
+
+    print(f"[ingest_run] scheduled run_id={run_id} operator={args.operator} limit={limit}", flush=True)
+
+    # 用 FastAPI BackgroundTasks(确保 response 后任务真的跑)
+    if background is not None:
+        # BackgroundTasks 不支持 async coroutine,包成 sync wrapper
+        def _bg_wrapper():
+            asyncio.run(_bg())
+        background.add_task(_bg_wrapper)
+    else:
+        # 兜底
+        asyncio.create_task(_bg())
+
     return {
-        "run_id": "manual_" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"),
-        "items_fetched": r["fetched"],
-        "items_new": r["new"],
-        "items_summarized": r["summarized"],
-        "items_failed": r["failed"],
-        "summarized": r["summarized"],
-        "fetched": r["fetched"],
-        "failed": r["failed"],
-        "warning": r.get("warning", ""),
+        "run_id": run_id,
+        "status": "running",
+        "trigger": "manual",
+        "operator": args.operator,
+        "limit": limit,
     }
 
 
-# ============================================================
-# Day 4:源开关 + 调度频率配置
-# ============================================================
-class SourceConfigUpdate(BaseModel):
-    """管理员:更新源开关"""
-    enabled: List[str]   # 启用的 source id 列表
+@router.get("/ingest/task/{run_id}")
+def admin_get_ingest_task(
+    run_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """管理员:查一次手动 ingest 任务的状态(给前端轮询用)。
 
-
-@router.get("/sources")
-def admin_list_sources(admin: dict = Depends(require_admin)):
-    """列出所有可用源(包含 RSS + KOL)及其当前开关状态"""
-    from crawler.sources import RSS_SOURCES, KOL_SOURCES, DEFAULT_CRON, SOURCE_L1_MAP
-    from crawler.collectors import load_enabled_sources
-    enabled_set = load_enabled_sources()  # None 表示全开
-
-    rss = []
-    for sid, (name, url) in RSS_SOURCES.items():
-        rss.append({
-            "id": sid, "name": name, "kind": "rss",
-            "url": url, "default_interval_sec": DEFAULT_CRON["rss"],
-            "category_l1": SOURCE_L1_MAP.get(sid, "其他"),
-            "enabled": (sid in enabled_set) if enabled_set is not None else True,
-        })
-    kol = []
-    for key, (name, kind) in KOL_SOURCES.items():
-        kol.append({
-            "id": key, "name": name, "kind": kind,
-            "url": "", "default_interval_sec": DEFAULT_CRON["kol"],
-            "category_l1": SOURCE_L1_MAP.get(key, "其他"),
-            "enabled": (key in enabled_set) if enabled_set is not None else True,
-        })
-    return {"rss": rss, "kol": kol, "all_enabled": enabled_set is None}
-
-
-@router.put("/sources")
-def admin_update_sources(req: SourceConfigUpdate, admin: dict = Depends(require_admin)):
-    """更新源开关(白名单:不在列表里的源会被关停)"""
-    from crawler.collectors import save_enabled_sources
-    save_enabled_sources(req.enabled)
-    return {"ok": True, "enabled_count": len(req.enabled)}
+    返回:
+      - status: "running" / "done" / "failed"
+      - finished_at: None=还在跑
+      - items_fetched / items_summarized / items_failed
+      - warning: 失败原因
+    """
+    doc = get_task_run_status(run_id)
+    if not doc:
+        from fastapi import HTTPException, status
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"run_id={run_id} 不存在")
+    return doc
 
 
 # ============================================================

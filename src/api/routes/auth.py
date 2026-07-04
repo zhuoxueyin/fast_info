@@ -37,8 +37,17 @@ async def login_endpoint(req: LoginRequest):
         token, user = auth_login(req.username, req.password)
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
-    from auth import save_session
-    save_session(token, user)
+    except Exception as e:
+        import traceback
+        print(f"[login] unexpected error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"登录服务异常: {e}")
+    try:
+        from auth import save_session
+        save_session(token, user)
+    except Exception as e:
+        # session 文件写入失败不影响登录流程,仅打印警告
+        print(f"[login] save_session failed (non-fatal): {e}")
     return LoginResponse(token=token, user=_user_to_view(user))
 
 

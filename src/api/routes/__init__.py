@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from . import (
     auth, hot, ingest, items, search, stats, subs, today,
     banner, inbox, categories, admin,  # Day 3 新增
+    topics, settings,  # topics: 临时话题 / settings: 推送配置
 )  # noqa: F401
 
 
@@ -32,6 +33,9 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(inbox.router, prefix="/api")
     app.include_router(categories.router, prefix="/api")
     app.include_router(admin.router, prefix="/api")
-    # Day 5 (router 内部已含 prefix="/api/admin/sources")
+    # Day 5: source_admin (router prefix="/admin/sources")
     from .source_admin import router as source_admin_router  # noqa: F811
-    app.include_router(source_admin_router)
+    app.include_router(source_admin_router, prefix="/api")
+    # topics / settings
+    app.include_router(topics.router, prefix="/api")
+    app.include_router(settings.router, prefix="/api")

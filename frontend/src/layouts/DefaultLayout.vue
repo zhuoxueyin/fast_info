@@ -23,10 +23,9 @@
         </div>
 
         <nav class="flex items-center gap-4 text-sm flex-shrink-0">
+          <router-link to="/" class="text-slate-700 hover:text-emerald-600 font-medium">🔥 热点资讯</router-link>
           <router-link to="/hot" class="text-slate-700 hover:text-emerald-600 font-medium">📊 今日排行</router-link>
-          <router-link v-if="auth.isLoggedIn" to="/me/inbox" class="text-slate-700 hover:text-emerald-600 font-medium">⭐ 个人关注</router-link>
-          <router-link v-if="auth.isLoggedIn" to="/subs/new" class="text-slate-700 hover:text-emerald-600 font-medium">＋ 新订阅</router-link>
-          <router-link v-if="auth.isLoggedIn" to="/settings" class="text-slate-700 hover:text-emerald-600 font-medium" title="推送配置(绑定飞书个人 / 邮箱 SMTP / Webhook)">⚙️ 推送</router-link>
+          <router-link v-if="auth.isLoggedIn" to="/me/inbox" class="text-slate-700 hover:text-emerald-600 font-medium">📥 我的推送</router-link>
         </nav>
 
         <div class="flex-1"></div>
@@ -97,16 +96,12 @@ function onSearchClear() {
 
 const userMenuOptions = [
   { label: '个人中心', key: 'me' },
-  { label: '我的推送', key: 'inbox' },
-  { label: '创建订阅', key: 'sub_new' },
   { type: 'divider', key: 'd1' },
   { label: '退出登录', key: 'logout' },
 ]
 
 function onUserMenu(key: string) {
   if (key === 'me') router.push('/me')
-  else if (key === 'inbox') router.push('/me/inbox')
-  else if (key === 'sub_new') router.push('/subs/new')
   else if (key === 'logout') {
     auth.logout()
     router.push('/')

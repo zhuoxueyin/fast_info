@@ -173,6 +173,7 @@ class TaskRun(BaseModel):
     run_id: str
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    status: Optional[str] = None       # Day 5:running / done / failed
     trigger: str
     operator: Optional[str] = None
     items_fetched: int = 0
@@ -180,6 +181,7 @@ class TaskRun(BaseModel):
     items_failed: int = 0
     per_source: dict = {}
     llm_breakdown: dict = {}
+    warning: Optional[str] = None      # Day 5:LLM 全失败时的原因
 
 
 class LLMHealth(BaseModel):
@@ -219,6 +221,7 @@ class IngestResponse(BaseModel):
     summarized: int
     failed: int
     errors: List[str] = []
+    warning: str = ""     # Day 6:warning 字段,空 = 无警告
 
 
 # ============================================================

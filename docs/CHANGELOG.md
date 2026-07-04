@@ -61,7 +61,7 @@
 
 ## [v0.4.1] - 2026-07-04 · Day 7 v0.4.1
 
-**定位**:把"feishu_dm 个人单聊"做成产品级 UX,用户零代码即绑定。
+**定位**:飞书 OAuth 单聊绑定(已废弃,改用 webhook 群机器人)。
 
 ### Added
 - **飞书 OAuth 单聊绑定** 4 个端点:
@@ -124,7 +124,7 @@
 
 ### Stats
 - **RSS 数据源**:20 → 28(+40%)
-- **API endpoints**:+3 settings/notifier + 1 (feishu_dm 占位)
+- **API endpoints**:+3 settings/notifier
 - **OpenAPI paths**:42 → 45
 
 **Commits**: `5d2b990`、`11ca9a9`

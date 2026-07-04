@@ -72,7 +72,24 @@
 5. **零外部依赖可跑**:本机 MongoDB + 本机 Redis + 远程 LLM API,可全离线本地基础设施跑完整链路。
 6. **支持 v2 检索层升级位**:`retrieval/__init__.py` 已留 BGE-M3/DashScope 升级接口,MongoDB text 是兜底。
 
-### 2.3 数据流(Subscription 一次执行)
+### 2.3 编码铁律（0-1 项目核心原则）
+
+> 当前项目 0→1，无真实用户。**只有 admin 一个有效用户**，其他账号都是测试/假数据。
+> 以下 3 条是架构级红线，代码审查必查。
+
+| # | 原则 | 说明 |
+|---|---|---|
+| **P1** | **拒绝历史兼容** | 不写兼容旧数据/旧格式的 fallback。数据不规范直接修数据，不要修代码去兜。 |
+| **P2** | **唯一链路、唯一写法** | 每个功能只有一条数据流、一种查询方式。禁止同一件事有两条路径（如 ObjectId + username 双路查用户）。 |
+| **P3** | **admin 就是唯一用户** | 所有设计以 admin 为准。不为 smoke_*/local/testuser 等假用户写特殊逻辑。测试数据直接清库重建。 |
+
+**代码审查检查点**：
+- `_find_user_doc` 是否只用 `ObjectId` 一种方式查？ ✅ 不允许 username fallback
+- settings/notifier 是否有多余的渠道（如 `feishu_dm` 孤儿渠道）？ ✅ 只有活跃渠道
+- 订阅执行 channels 是否有多层 fallback？ ✅ 订阅自己的 channels 字段，空则默认 `["inbox"]`
+- `_id` 是否统一为 ObjectId？ ✅ `init_admin.py` 不再用 `"u_admin"` 字符串 _id
+
+### 2.4 数据流(Subscription 一次执行)
 
 ```
 ingest_daemon (30 min/次)
@@ -702,15 +719,21 @@ await registry.aclose()
 
 **更新节奏**:每日完工 → 写 `docs/day{N}-deliverable.md` → 回填本文件 §1 / §5 / §6 相应章节。
 
-### 9.1 DevOps 升级横切路线(2026-07-03 v1.0,详见 `docs/devops-研发部署流程升级-v1.0.md`)
+### 9.1 DevOps 升级横切路线(2026-07-04 v1.1,详见 `docs/deploy-runbook.md`)
 
 | Day | 主题 | 关键交付 | 状态 |
 |---|---|---|---|
-| **Day 5** | Git + GitHub 仓库 + Actions 骨架 | git init / push GitHub / ci.yml / 第一个 PR 合 main | ⏳ 下一棒 |
-| **Day 6** | 5 服务镜像化 | 5 个 Dockerfile + docker-compose.yml(本机跑通,5/5 健康) | ⏳ |
-| **Day 7** | 预发布环境 | 腾讯轻量 + TCR + deploy-staging.sh(staging 自动部署) | ⏳ |
-| **Day 8** | 生产环境 + 域名 | 腾讯云 MongoDB + 域名 + Cloudflare + deploy-prod.sh(审批) | ⏳ |
-| **Day 9** | 回滚演练 | 故意发坏版本 → 切 tag 回滚 → 1 分钟恢复 | ⏳ |
+| **Day 5** | Git + GitHub 仓库 + Actions 骨架 | git init / push GitHub / ci.yml / 第一个 PR 合 main | ⏳ |
+| **Day 6** | 三环境模型 + 完整部署手册 v2.0 | `docs/deploy-runbook.md`(L/S/P 三环境 + 一键部署) | ✅ **已完成** |
+| **Day 7** | 服务器首次部署 + 日常迭代上线 | 腾讯轻量 Lighthouse 2C2G 跑通 + `scripts/deploy-prod.sh` | ⏳ 下一棒 |
+| **Day 8** | 生产环境 + 域名 | 腾讯云 MongoDB + 域名 + Cloudflare + HTTPS(对应 ADR-014/015) | ⏳ |
+| **Day 9** | 回滚演练 + 多副本 | 镜像 tag + 切 tag 回滚 + 1 分钟恢复(对应 ADR-017) | ⏳ |
+
+**2026-07-04 调整**(原 Day 5 GitHub Actions 路线**暂缓**):
+- 单人项目不再需要 GitHub Actions 自动构建 — 服务器本地 build 够用(2C2G 5-15min,Daily deploy N 次可接受)
+- TCR 镜像仓库暂缓 — Docker Hub 公开仓库 + 服务器本地 build 已能完整支持迭代
+- Day 6 的核心交付改为:**完整部署手册 v2.0**(`docs/deploy-runbook.md`),统一三环境发布模型
+- 详细部署指令 / 端口 / env / 故障定位 / [Agent]/[User] 责任划分,全部在该文档
 
 **与业务 day 路线并行**:DevOps 升级是横切工程化,不影响业务 day 5-6+ 的功能迭代。两者可同日推进(上午 dev,下午 devops)。
 
@@ -779,6 +802,8 @@ await registry.aclose()
 | **NEW-8** | admin API 当前公开,前端未鉴权 | source_admin/* 全公开 | 待 role-based guard |
 | **NEW-9** | 告警 webhook 走 env,未抽到 Notifier 框架 | 当前用 `httpx.post(webhook, json=payload)` | 下一轮抽到 `notifier.send_all(user, ['webhook'], ...)` |
 | **Day 5** | source_runs 自动禁用的 source_config 联动 + alarm | ✅ 已上线 | ✅ 关闭 |
+| **P-CLEAN** | 代码清理：移除 feishu_dm 孤儿渠道、_id 统一 ObjectId、去掉过度 fallback | ✅ 已完成 | ✅ 关闭 |
+| **P-MIGRATE** | admin 的 _id 从 `"u_admin"` 迁移到 ObjectId（init_admin.py 已改，存量 admin 需重建） | 重建：`python scripts/init_admin.py --username admin --password xxx --reset` | ⚠️ 需手动执行 |
 
 ---
 
@@ -854,4 +879,4 @@ python fastinfo.py stats                             # MongoDB 状态 / 索引
 
 ---
 
-*Last updated: 2026-07-04(Day 5 完成)* · *Next update: Day 6 完工时* · *Next update: Day 3 完工时*
+*Last updated: 2026-07-04(Day 5 完成 + P1-P3 原则落地)* · *Next update: Day 6 完工时*

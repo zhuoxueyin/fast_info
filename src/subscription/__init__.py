@@ -20,6 +20,7 @@ fastInfo · 订阅引擎
 from __future__ import annotations
 import asyncio
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field, asdict
@@ -280,6 +281,15 @@ def update_subscription_after_run(sub_id: str, success: bool, error: Optional[st
 # 订阅执行
 # ============================================================
 
+async def _find_user_doc(db, user_id: str) -> dict | None:
+    """根据 user_id (ObjectId hex string) 查 users 集合。"""
+    from bson import ObjectId
+    try:
+        return await db["users"].find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        return None
+
+
 async def run_subscription(sub: dict) -> dict:
     """
     执行一个订阅(Day 4 升级):
@@ -297,6 +307,10 @@ async def run_subscription(sub: dict) -> dict:
     require_all_keywords = bool(sub.get("require_all_keywords", False))
 
     db = get_async_client()[DEFAULT_DB]
+
+    # channels: 订阅自身字段，为空时默认仅 inbox
+    if not channels:
+        channels = ["inbox"]
 
     # 1. 从 MongoDB 读最近 lookback_hours 小时的 items
     since = (datetime.now(timezone.utc) - timedelta(hours=lookback_hours)).isoformat()
@@ -374,7 +388,8 @@ async def run_subscription(sub: dict) -> dict:
 
     # 4. 多渠道推送
     if new_items:
-        user_doc = await db["users"].find_one({"_id": user_id}) or {}
+        user_doc = await _find_user_doc(db, user_id) or {}
+        print(f"  [sub run] {sub_id[:8]} channels={channels} feishu_webhook={'***' if user_doc.get('feishu_webhook') else 'MISSING'} items={len(new_items)}")
         await _render_and_send(user_doc, sub, new_items, channels)
 
     return {
@@ -397,8 +412,7 @@ async def _render_and_send(user_doc: dict, sub: dict, items: list, channels: lis
     card       = format_feishu_card(sub, items, inbox_url)
     # 多渠道分发:
     #   - inbox / email: body_html
-    #   - feishu / wechat / webhook: body_md (及其他渠道送 markdown)
-    #   - feishu_dm: card
+    #   - feishu / wechat / webhook: body_md
     return send_all(user_doc, channels, title, body_md, items, body_html=body_html, card=card)
 
 

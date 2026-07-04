@@ -11,27 +11,40 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import Header, HTTPException, status
+from bson import ObjectId
 
 from auth import verify_token, load_session
 from storage.mongo_writer import get_db
 
 
 def _enrich_user(payload: dict) -> dict:
-    """从 Mongo 读最新 role / plan / email,避免 JWT 过期前角色变更不生效。"""
+    """从 Mongo 读最新用户信息，避免 JWT 过期前角色变更不生效。"""
     out = {
         "id": payload.get("sub"),
         "username": payload.get("username"),
     }
     try:
         db = get_db()
-        u = db["users"].find_one({"_id": out["id"]}, {"role": 1, "plan": 1, "email": 1})
+        oid = ObjectId(out["id"])
+        u = db["users"].find_one(
+            {"_id": oid},
+            {"role": 1, "plan": 1, "email": 1, "default_channels": 1,
+             "feishu_webhook": 1, "feishu_open_id": 1, "wechat_webhook": 1,
+             "webhook_url": 1, "smtp_host": 1, "smtp_port": 1, "smtp_user": 1},
+        )
         if u:
             out["role"] = u.get("role", "user")
             out["plan"] = u.get("plan", "free")
             out["email"] = u.get("email") or None
+            out["default_channels"] = u.get("default_channels", [])
+            out["feishu_webhook"] = u.get("feishu_webhook", "")
+            out["feishu_open_id"] = u.get("feishu_open_id", "")
+            out["wechat_webhook"] = u.get("wechat_webhook", "")
+            out["webhook_url"] = u.get("webhook_url", "")
     except Exception:
         out.setdefault("role", "user")
         out.setdefault("plan", "free")
+        out.setdefault("default_channels", [])
     return out
 
 

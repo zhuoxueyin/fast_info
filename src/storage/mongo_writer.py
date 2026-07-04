@@ -93,6 +93,18 @@ def ensure_indexes():
     runs.create_index([("trigger", ASCENDING), ("started_at", DESCENDING)], name="ix_trigger_started")
     runs.create_index([("operator", ASCENDING), ("started_at", DESCENDING)], name="ix_operator_started")
 
+    # ---- Day 5 additions ----
+    try:
+        from storage.source_runs import ensure_indexes as _sr_idx
+        _sr_idx()
+    except Exception as _e:
+        print(f"  ✗ source_runs index init failed: {_e}")
+    try:
+        from storage.source_config import ensure_indexes as _sc_idx
+        _sc_idx()
+    except Exception as _e:
+        print(f"  ✗ source_config index init failed: {_e}")
+
     print(f"  ✓ indexes created on db={DEFAULT_DB}")
 
 
@@ -100,17 +112,6 @@ def ensure_indexes():
 # 写入 / 读取
 # ============================================================
 
-    # ---- Day 5 additions ----
-    try:
-        from storage.source_runs import ensure_indexes as _sr_idx
-        _sr_idx()
-    except Exception as _e:
-        logger.warning("source_runs index init failed: %s", _e)
-    try:
-        from storage.source_config import ensure_indexes as _sc_idx
-        _sc_idx()
-    except Exception as _e:
-        logger.warning("source_config index init failed: %s", _e)
 def _ensure_category_l1(item: dict) -> None:
     """确保 item 有 category_l1 字段;如果没有,从 category 归一化"""
     if not item.get("category_l1"):
@@ -251,6 +252,48 @@ def record_task_run(run: dict) -> None:
     """写入一次抓取事件。run 含 run_id, started_at, finished_at, trigger, operator, items_*, per_source, llm_breakdown。"""
     db = get_db()
     db["task_runs"].insert_one(dict(run))
+
+
+def create_task_run_pending(run: dict) -> None:
+    """Day 5 升级:任务启动时立刻写一条 status=running 的占位记录,
+    让前端 /admin/ingest/task/{run_id} 轮询时能立刻查到。
+    run 至少含 run_id / started_at / trigger / operator。
+    """
+    db = get_db()
+    doc = dict(run)
+    doc.setdefault("status", "running")
+    doc.setdefault("finished_at", None)
+    doc.setdefault("items_fetched", 0)
+    doc.setdefault("items_summarized", 0)
+    doc.setdefault("items_failed", 0)
+    doc.setdefault("per_source", {})
+    doc.setdefault("llm_breakdown", {})
+    db["task_runs"].insert_one(doc)
+
+
+def update_task_run_finished(run_id: str, patch: dict) -> bool:
+    """Day 5 升级:任务结束(或失败)时更新原 running 记录。
+    patch 一般含 finished_at / status / items_* / warning / per_source。
+    返回 True 表示更新成功(记录存在),False 表示没找到。
+    """
+    db = get_db()
+    if not patch.get("status"):
+        patch["status"] = "done"
+    res = db["task_runs"].update_one({"run_id": run_id}, {"$set": patch})
+    return res.matched_count > 0
+
+
+def get_task_run_status(run_id: str) -> dict | None:
+    """Day 5 升级:取一条 task_run 的精简状态(给轮询用)。"""
+    db = get_db()
+    doc = db["task_runs"].find_one(
+        {"run_id": run_id},
+        {"run_id": 1, "status": 1, "started_at": 1, "finished_at": 1,
+         "trigger": 1, "operator": 1, "items_fetched": 1,
+         "items_summarized": 1, "items_failed": 1, "warning": 1,
+         "per_source": 1, "llm_breakdown": 1},
+    )
+    return _serialize_datetimes(_strip_oid(doc)) if doc else None
 
 
 def get_recent_task_runs(limit: int = 20) -> list[dict]:

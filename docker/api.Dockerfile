@@ -20,8 +20,11 @@ COPY src ./src
 COPY scripts ./scripts
 COPY examples ./examples
 COPY fastinfo.py ./fastinfo.py
-COPY config ./config
+# config/ 不存在,环境变量走 ./env_file: docker/env.docker.local + ./env volume
 COPY docker/api-entrypoint.sh ./docker/api-entrypoint.sh
+
+# 清掉本机 Python 3.14 跑过留下的 .pyc(残留 import 名 / 版本不兼容)
+RUN find /app -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 RUN mkdir -p /app/data \
     && chmod +x /app/docker/api-entrypoint.sh
