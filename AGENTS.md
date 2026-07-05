@@ -124,7 +124,44 @@ db["subscriptions"].insert_one({"user_id": str(admin["_id"]), "title": "TEST", .
 - `_id` 是否统一为 ObjectId？ ✅ `init_admin.py` 不再用 `"u_admin"` 字符串 _id
 - **新增**:任何脚本字符串里出现 `'admin'` 作为 user_id 来源,就是 P-TEST-3 违规
 
-### 2.4 数据流(Subscription 一次执行)
+### 2.4 Git 工作流铁律(部署/上线纪律)
+
+> 🚨 **严禁直接操作 `master` 主干。** 任何修复、改动必须走"分支 → 验证 → 合并"流程。
+
+| # | 规则 | 说明 |
+|---|---|---|
+| **G1** | **禁止直接 commit 到 master** | 无论是 bug 修复、hotfix 还是文档调整,都不允许直接在 `master` 上提交。 |
+| **G2** | **从 master 切新分支** | 分支命名规范:`fix/<问题简述>`、`feat/<功能>`、`hotfix/<问题>`。从最新的 `origin/master` 切出。 |
+| **G3** | **分支上验证通过再合回 master** | 本地 build / smoke test / 相关页面验证通过;Docker 构建(`docker compose build` 或 `scripts/deploy-staging.sh`)必须能跑通。 |
+| **G4** | **合并回 master 后再部署** | 只有验证通过的分支才能 merge 到 `master`,再由 `master` 触发 `scripts/deploy-prod.sh` 正式部署。 |
+| **G5** | **部署失败回滚到上一版** | 若正式部署后健康检查失败,立刻 `git reset --hard <上一稳定 commit>` 并重新部署,不在 master 上堆叠未知状态。 |
+
+**违规示例 vs 合规示例:**
+
+```bash
+# 🚫 违规:master 上直接修
+ git checkout master
+ git add .
+ git commit -m "fix: xxx"
+ git push origin master
+```
+
+```bash
+# ✅ 合规:分支验证后合并
+ git checkout master && git pull origin master
+ git checkout -b fix/frontend-ts-build
+ # ... 修改 ...
+ npm run build  # 或 bash scripts/deploy-staging.sh 验证
+ git add .
+ git commit -m "fix(frontend): xxx"
+ git push origin fix/frontend-ts-build
+ # PR / 本地 merge 回 master
+ git checkout master && git merge --no-ff fix/frontend-ts-build
+ git push origin master
+ bash scripts/deploy-prod.sh
+```
+
+### 2.5 数据流(Subscription 一次执行)
 
 ```
 ingest_daemon (30 min/次)
