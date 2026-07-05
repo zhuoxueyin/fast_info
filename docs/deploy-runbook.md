@@ -281,7 +281,11 @@ grep -E "^MMX_API_KEY|^FASTINFO_SECRET|^FASTINFO_ADMIN_PASSWORD" /opt/fast_info/
 MONGO_URL=mongodb://mongo:27017
 MONGO_DB=fastinfo_docker
 REDIS_URL=redis://redis:6379
-APP_ENV=docker
+
+# ---------- 应用标识 ----------
+# P 正式环境必须标识为 prod;S 预发可改为 staging,L 本地为 dev
+APP_ENV=prod
+
 DATA_DIR=/app/data
 LANCEDB_DIR=/app/data/lancedb
 FASTINFO_WEB_PORT=18080
