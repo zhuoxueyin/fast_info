@@ -9,13 +9,17 @@
         :key="s.id"
         class="bg-white rounded-lg border p-3"
       >
-        <div class="flex items-center justify-between">
-          <span class="font-medium text-slate-900">{{ s.title }}</span>
-          <span class="text-xs text-slate-500">{{ s.is_active ? '运行中' : '已暂停' }}</span>
+        <div class="flex items-center justify-between gap-2">
+          <span class="font-medium text-slate-900 text-sm line-clamp-1 flex-1">{{ s.title }}</span>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <span v-if="s.track_mode === 'short'" class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">⏰ {{ formatRemain(s.expires_at) }}</span>
+            <span v-if="s.track_entity" class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">📌 {{ s.track_entity }}</span>
+            <span class="text-xs text-slate-500">{{ s.is_active ? '运行中' : '已暂停' }}</span>
+          </div>
         </div>
         <div class="text-xs text-slate-500 mt-1 line-clamp-1">{{ s.nl_query }}</div>
         <div class="flex items-center gap-2 mt-2 text-xs text-slate-500">
-          <span>每 {{ s.interval_min || 30 }} 分钟</span>
+          <span>{{ s.interval_min ? `每 ${s.interval_min}m` : (s.cron_expr || '0 9 * * *') }}</span>
           <span>·</span>
           <span>最多 {{ s.max_items }} 条</span>
         </div>
@@ -34,6 +38,16 @@ import type { Subscription } from '@/types/api'
 
 const subs = ref<Subscription[]>([])
 const loading = ref(true)
+
+function formatRemain(iso?: string | null): string {
+  if (!iso) return '短期'
+  const diff = new Date(iso).getTime() - Date.now()
+  if (diff <= 0) return '已过期'
+  const days = Math.floor(diff / 86400000)
+  if (days > 0) return `剩 ${days} 天`
+  const hours = Math.floor(diff / 3600000)
+  return `剩 ${hours}h`
+}
 
 onMounted(async () => {
   try {

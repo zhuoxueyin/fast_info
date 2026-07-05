@@ -14,7 +14,7 @@ from bson import ObjectId
 
 from storage.mongo_writer import get_db
 from crawler.sources import (
-    RSS_SOURCES, KOL_SOURCES, CATEGORY_L1, DEFAULT_CRON,
+    RSS_SOURCES, KOL_SOURCES, CATEGORY_L1, DEFAULT_CRON, SOURCE_L1_DEFAULT,
 )
 
 
@@ -30,14 +30,14 @@ def _new_source_id_for_kol(key: str) -> str:
     return key
 
 
-def _default_for_rss(rss_id: str, name: str, url: str) -> dict:
+def _default_for_rss(rss_id: str, name: str, url: str, l1: str = "") -> dict:
     return {
         "source_id": rss_id,
         "kind": "rss",
         "display_name": name,
         "url": url,
         "urls": [url],
-        "l1": "",
+        "l1": l1,
         "tags": [],
         "cron_interval_seconds": DEFAULT_CRON.get("rss", 1800),
         "is_active": True,
@@ -51,7 +51,7 @@ def _default_for_rss(rss_id: str, name: str, url: str) -> dict:
     }
 
 
-def _default_for_kol(key: str, name: str, kind: str) -> dict:
+def _default_for_kol(key: str, name: str, kind: str, l1: str = "") -> dict:
     if kind == "weibo_user":
         platform_config = {"mode": "scraper", "openapi_token": "", "cookie": ""}
     elif kind == "x_user":
@@ -66,7 +66,7 @@ def _default_for_kol(key: str, name: str, kind: str) -> dict:
         "display_name": name,
         "url": "",
         "urls": [],
-        "l1": "",
+        "l1": l1,
         "tags": [],
         "cron_interval_seconds": DEFAULT_CRON.get("kol", 3600),
         "is_active": True,
@@ -153,6 +153,35 @@ def toggle_source(source_id: str) -> Optional[bool]:
     return new_state
 
 
+def set_source_active(source_id: str, is_active: bool) -> bool:
+    """显式设置 is_active(批量/重置用,不是 toggle)
+
+    启用时:重置 consecutive_fails + 清掉 disabled_at/disabled_reason(避免自动禁用残留)
+    禁用时:记录 disabled_at,consecutive_fails 保留(方便排查)
+    不存在返回 False,操作成功返回 True
+    """
+    db = get_db()
+    s = db["source_config"].find_one({"source_id": source_id})
+    if not s:
+        return False
+    update: dict = {
+        "is_active": bool(is_active),
+        "updated_at": now_iso(),
+    }
+    if is_active:
+        update["consecutive_fails"] = 0
+        update["disabled_at"] = None
+        update["disabled_reason"] = None
+    else:
+        update["disabled_at"] = now_iso()
+        # disabled_reason 保留(可能是自动禁用留下的)
+    db["source_config"].update_one(
+        {"source_id": source_id},
+        {"$set": update},
+    )
+    return True
+
+
 def load_enabled_sources() -> Optional[set[str]]:
     """向后兼容:返回启用的 source_id 集合。None 表示全部"""
     db = get_db()
@@ -165,19 +194,24 @@ def load_enabled_sources() -> Optional[set[str]]:
 
 def seed_from_registry() -> int:
     """把代码里的 RSS_SOURCES / KOL_SOURCES 同步到 source_config。
-    已存在的 source_id 不会覆盖。返回新建条数。"""
+    已存在的 source_id 不会覆盖。返回新建条数。
+
+    L1 默认走 SOURCE_L1_DEFAULT(SOURCES 表里的 SOURCE_L1_DEFAULT);未登记的源兜底 "其他"。
+    """
     db = get_db()
     created = 0
     for rss_id, (name, url) in RSS_SOURCES.items():
         if db["source_config"].find_one({"source_id": rss_id}):
             continue
-        doc = _default_for_rss(rss_id, name, url)
+        l1 = SOURCE_L1_DEFAULT.get(rss_id, "其他")
+        doc = _default_for_rss(rss_id, name, url, l1=l1)
         db["source_config"].insert_one(doc)
         created += 1
     for key, (name, kind) in KOL_SOURCES.items():
         if db["source_config"].find_one({"source_id": key}):
             continue
-        doc = _default_for_kol(key, name, kind)
+        l1 = SOURCE_L1_DEFAULT.get(key, "其他")
+        doc = _default_for_kol(key, name, kind, l1=l1)
         db["source_config"].insert_one(doc)
         created += 1
     return created

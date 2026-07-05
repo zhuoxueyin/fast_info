@@ -1,7 +1,19 @@
 <template>
   <div>
-    <!-- Banner: 公域类目热榜卡片 -->
-    <section v-if="bannerReady && bannerGroups.length" class="mb-6">
+    <section class="pt-8 pb-10">
+      <div class="relative max-w-2xl mx-auto">
+        <span class="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">🔍</span>
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="搜索资讯 · 关键词 · 话题"
+          class="w-full pl-14 pr-6 py-4 text-base rounded-full bg-white border border-slate-200 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 transition placeholder:text-slate-400"
+          @keyup.enter="goSearch"
+        />
+      </div>
+    </section>
+
+    <section v-if="bannerReady && bannerGroups.length" class="mb-8">
       <div class="grid gap-3" :class="bannerGridClass">
         <article
           v-for="group in bannerGroups"
@@ -37,18 +49,16 @@
       </div>
     </section>
 
-    <!-- 🪜 临时话题快入口(AI 驱动) -->
-    <section class="mb-4">
-      <div class="bg-white border-2 border-emerald-200 rounded-xl p-4 shadow-sm">
-        <div class="flex items-center gap-2 mb-2">
+    <section class="mb-6">
+      <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+        <div class="flex items-center gap-2 mb-3">
           <span class="text-xl">🪜</span>
-          <span class="font-semibold text-slate-900">今天要关注什么?</span>
-          <n-tag size="small" :bordered="false" type="success">AI 驱动 · 24h 临时</n-tag>
+          <span class="font-semibold text-slate-900">今天要关注什么？</span>
         </div>
         <div class="flex gap-2">
           <n-input
             v-model:value="topicQuery"
-            placeholder="试用例:「世界杯」「AI 资讯」「火星探测」……"
+            placeholder="输入话题，AI 自动聚合 24h 相关资讯"
             size="medium"
             :disabled="topicCreating"
             @keyup.enter="createNowTopic"
@@ -57,11 +67,9 @@
           </n-input>
           <n-button type="primary" size="medium" :loading="topicCreating" @click="createNowTopic">查询</n-button>
         </div>
-        <p class="text-xs text-slate-400 mt-2">例「世界杯」→ 24h 临时 dashboard 看内容;「AI 资讯」→ 看最近 AI 类目;「火星探测」→ 看最近相关事件。</p>
       </div>
     </section>
 
-    <!-- L1 类目入口(顶部 tab) -->
     <section class="mb-3">
       <div class="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2">
         <button
@@ -78,8 +86,7 @@
       </div>
     </section>
 
-    <!-- L2 二级分类筛选 -->
-    <section v-if="availableL2.length" class="mb-4">
+    <section v-if="availableL2.length && activeL1 !== '全部'" class="mb-4">
       <div class="flex gap-1.5 overflow-x-auto pb-1 -mx-2 px-2">
         <button
           class="text-xs px-3 py-1 rounded-full whitespace-nowrap transition flex-shrink-0"
@@ -104,12 +111,14 @@
       </div>
     </section>
 
-    <!-- 当前类目下的热门/最新切换 -->
-    <section class="mb-8">
+    <section class="mb-10">
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-3">
           <h2 class="text-xl font-bold text-slate-900">
-            {{ l1Icon(activeL1) }} {{ activeL1 }}<span v-if="activeL2"> · {{ activeL2 }}</span>
+            {{ l1Icon(activeL1) }} {{ activeL1 }}
+            <span v-if="activeL2 && activeL1 !== '全部'"> · {{ activeL2 }}</span>
+            <span v-if="activeL1 === '全部' && feedMode === 'personalized'" class="text-xs text-emerald-600 font-normal ml-2">✨ 按你的订阅偏好排序</span>
+            <span v-else-if="activeL1 === '全部' && feedMode === 'random'" class="text-xs text-slate-500 font-normal ml-2">🎲 随机打散 · 还没订阅?</span>
           </h2>
           <div class="flex bg-slate-100 rounded-full p-0.5 text-xs">
             <button
@@ -124,7 +133,6 @@
             >🕐 时间</button>
           </div>
         </div>
-        <router-link :to="`/hot?category=${encodeURIComponent(activeL1)}`" class="text-sm text-emerald-600 hover:underline">查看全部 →</router-link>
       </div>
       <div v-if="displayItems.length" class="grid gap-4 md:grid-cols-2">
         <ItemCard v-for="(item, idx) in displayItems" :key="item.id" :item="item">
@@ -137,7 +145,6 @@
       <n-empty v-else :description="`${activeL1}${activeL2 ? ' · ' + activeL2 : ''} 暂无数据`" />
     </section>
 
-    <!-- 最新 30 条 -->
     <section>
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-bold text-slate-900">📰 最新资讯</h2>
@@ -158,9 +165,9 @@ import { api, createTopicNow } from '@/lib/api'
 import type { Item, HotResponse, TodayResponse, BannerConfig } from '@/types/api'
 import ItemCard from '@/components/ItemCard.vue'
 
-const l1Tabs = ['科技', 'AI', '体育', '娱乐', '财经', '汽车', '其他']
+const l1Tabs = ['全部', '科技', 'AI', '体育', '娱乐', '财经', '汽车', '其他']
 const l1IconMap: Record<string, string> = {
-  科技: '🔬', AI: '🤖', 体育: '⚽', 娱乐: '🎬', 财经: '💰', 汽车: '🚗', 其他: '📂',
+  全部: '🌐', 科技: '🔬', AI: '🤖', 体育: '⚽', 娱乐: '🎬', 财经: '💰', 汽车: '🚗', 其他: '📂',
 }
 const l1Icon = (c: string) => l1IconMap[c] || '📂'
 const iconOf = l1Icon
@@ -185,18 +192,26 @@ const PALETTE: Record<string, string> = {
   其他: 'linear-gradient(135deg, #334155 0%, #64748B 100%)',
 }
 
-const activeL1 = ref('AI')
+const activeL1 = ref('全部')
 const activeL2 = ref('')
 const sortBy = ref<'hot' | 'time'>('hot')
 const hotItems = ref<Item[]>([])
+const feedItems = ref<Item[]>([])
+const feedMode = ref<'personalized' | 'random'>('random')   // 后端用偏好加权还是稳定打散
 const latestItems = ref<Item[]>([])
 const bannerReady = ref(false)
 
-// 🪜 临时话题 (AI 驱动)
+const searchQuery = ref('')
+const $router = useRouter()
+function goSearch() {
+  const q = searchQuery.value.trim()
+  if (q) $router.push({ path: '/search', query: { q } })
+  else $router.push({ path: '/search' })
+}
+
 const topicQuery = ref('')
 const topicCreating = ref(false)
 const topicMsg = useMessage()
-const $router = useRouter()
 
 async function createNowTopic() {
   const nl = topicQuery.value.trim()
@@ -223,6 +238,20 @@ const bannerGroups = ref<BannerGroup[]>([])
 const availableL2 = computed(() => l2Map[activeL1.value] || [])
 
 const displayItems = computed(() => {
+  // "全部" tab:走 feedItems(后端已按偏好加权 / 稳定打散)
+  if (activeL1.value === '全部') {
+    const items = feedItems.value
+    if (sortBy.value === 'time') {
+      return [...items].sort((a, b) => {
+        const ta = a.published_at || a.fetched_at || ''
+        const tb = b.published_at || b.fetched_at || ''
+        return tb.localeCompare(ta)
+      })
+    }
+    // 热度:沿用后端的 _feed_score / _hot_score → 但 view 不带这两个字段,就用 relevance
+    return [...items].sort((a, b) => (b.relevance ?? 0) - (a.relevance ?? 0))
+  }
+
   let items = hotItems.value
   if (activeL2.value) {
     items = items.filter((it) => {
@@ -268,6 +297,29 @@ async function loadHot(cat: string) {
   }
 }
 
+/**
+ * Day 10:"全部" tab 的数据源。
+ * 后端 mode=feed:登录用户按订阅偏好加权,匿名/无订阅稳定打散。
+ * 用 sortBy 变化触发重排,但不重拉(后端结果已经按偏好排好了,只是 view 层切展示顺序)。
+ */
+async function loadFeed() {
+  try {
+    const r = await api<HotResponse & { personalized?: boolean }>('/hot', {
+      query: { limit: 30, hours: 168, threshold: 0, mode: 'feed' },
+    })
+    feedItems.value = r.items
+    // 后端返回时如果带 personalized 字段,前端用;否则默认 random
+    feedMode.value = r.personalized ? 'personalized' : 'random'
+    // 401 时 api.ts 会跳登录;这里只处理解析失败
+    if (!localStorage.getItem('token')) {
+      feedMode.value = 'random'
+    }
+  } catch {
+    feedItems.value = []
+    feedMode.value = 'random'
+  }
+}
+
 async function loadLatest() {
   try {
     const r = await api<TodayResponse>('/today', { query: { limit: 30 } })
@@ -307,12 +359,19 @@ async function loadBanner() {
 
 watch(activeL1, (v) => {
   activeL2.value = ''
-  loadHot(v)
+  if (v === '全部') {
+    loadFeed()
+  } else {
+    loadHot(v)
+  }
 })
 onMounted(() => {
-
   loadBanner()
-  loadHot(activeL1.value)
+  if (activeL1.value === '全部') {
+    loadFeed()
+  } else {
+    loadHot(activeL1.value)
+  }
   loadLatest()
 })
 </script>

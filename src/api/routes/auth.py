@@ -16,6 +16,8 @@ def _user_to_view(u: dict) -> UserView:
         email=u.get("email"),
         plan=u.get("plan", "free"),
         role=u.get("role", "user"),
+        nickname=u.get("nickname"),
+        avatar_url=u.get("avatar_url"),
         feishu_webhook=u.get("feishu_webhook"),
         wechat_webhook=u.get("wechat_webhook"),
         webhook_url=u.get("webhook_url"),
@@ -63,6 +65,10 @@ async def update_me_endpoint(req: UpdateUserRequest, user: dict = Depends(requir
     update: dict = {}
     if req.email is not None:
         update["email"] = req.email
+    if req.nickname is not None:
+        update["nickname"] = req.nickname.strip() or ""
+    if req.avatar_url is not None:
+        update["avatar_url"] = req.avatar_url.strip()
     if req.feishu_webhook is not None:
         update["feishu_webhook"] = req.feishu_webhook or None
     if req.wechat_webhook is not None:

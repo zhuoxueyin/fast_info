@@ -93,6 +93,11 @@ def ensure_indexes():
     runs.create_index([("trigger", ASCENDING), ("started_at", DESCENDING)], name="ix_trigger_started")
     runs.create_index([("operator", ASCENDING), ("started_at", DESCENDING)], name="ix_operator_started")
 
+    # Day 9 新增:push_history 推送历史(用户视角)
+    history = db["push_history"]
+    history.create_index([("user_id", ASCENDING), ("sent_at", DESCENDING)], name="ix_user_sent")
+    history.create_index([("trigger", ASCENDING), ("sent_at", DESCENDING)], name="ix_trigger_sent")
+
     # ---- Day 5 additions ----
     try:
         from storage.source_runs import ensure_indexes as _sr_idx
@@ -147,7 +152,10 @@ async def upsert_item_async(item: dict) -> bool:
         return True
     except Exception as e:  # DuplicateKeyError 在异步侧是普通 Exception
         if "duplicate key" in str(e).lower() or "E11000" in str(e):
-            await coll.update_one({"url_hash": item["url_hash"]}, {"$set": item})
+            # pymongo insert_one 失败时会 mutate item dict 自动加 _id 字段,
+            # update_one $set 时不能动 _id(MongoDB immutable),先 pop 掉
+            update_doc = {k: v for k, v in item.items() if k != "_id"}
+            await coll.update_one({"url_hash": item["url_hash"]}, {"$set": update_doc})
             return False
         raise
 

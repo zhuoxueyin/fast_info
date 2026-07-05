@@ -58,16 +58,24 @@
 
     <!-- 默认推送渠道 -->
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-      <h3 class="font-semibold mb-3">📡 默认推送渠道（新建订阅时默认勾选）</h3>
+      <div class="flex items-baseline justify-between mb-3">
+        <h3 class="font-semibold">📡 默认推送渠道（新建订阅时默认勾选）</h3>
+        <span class="text-xs text-slate-400">未配置的渠道不会显示</span>
+      </div>
       <n-checkbox-group v-model:value="form.channels">
         <n-space>
-          <n-checkbox value="inbox">站内</n-checkbox>
-          <n-checkbox value="email">邮件</n-checkbox>
-          <n-checkbox value="feishu">飞书群机器人</n-checkbox>
-          <n-checkbox value="wechat">企业微信</n-checkbox>
-          <n-checkbox value="webhook">Webhook</n-checkbox>
+          <n-checkbox
+            v-for="ch in availableChannels"
+            :key="ch.name"
+            :value="ch.name"
+          >
+            {{ ch.label }}
+          </n-checkbox>
         </n-space>
       </n-checkbox-group>
+      <p v-if="!availableChannels.length" class="text-xs text-slate-400 mt-2">
+        💡 先在上面填好 webhook / SMTP 账号,这里就会出现对应渠道。
+      </p>
     </section>
 
     <!-- 保存 -->
@@ -92,10 +100,12 @@ type PushChannel = {
   name: string
   label: string
   required_fields: string[]
+  available: boolean
 }
 
 const msg = useMessage()
-const channels = ref<PushChannel[]>([])
+const channels = ref<PushChannel[]>([])        // 渠道总览表(全)
+const availableChannels = ref<PushChannel[]>([])  // 仅 available=true,默认渠道勾选用
 const form = ref({
   email: '', smtp_host: 'smtp.qq.com', smtp_port: 465,
   smtp_user: '', smtp_pass: '',
@@ -146,6 +156,8 @@ async function load() {
       api<any>('/settings'),
     ])
     channels.value = cs.channels
+    // Day 7:默认推送渠道复选框只显示 available=true 的,跟 settings 一致
+    availableChannels.value = (cs.channels || []).filter(c => c.available)
     form.value = { ...form.value, ...me, smtp_pass: '' }
     form.value.channels = me.channels || ['inbox']
   } catch (e: any) {

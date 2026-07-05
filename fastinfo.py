@@ -438,8 +438,10 @@ def main():
     tp2.add_argument("--all", action="store_true", help="含已过期")
     tp2.set_defaults(func=cmd_topic_list)
 
-    tp2 = tp_sub.add_parser("convert", help="转长期订阅")
+    tp2 = tp_sub.add_parser("convert", help="转订阅(Day 9 支持短期 / 长期)")
     tp2.add_argument("tid")
+    tp2.add_argument("--long", action="store_true", help="强制长期订阅(默认短期 7 天)")
+    tp2.add_argument("--duration-days", type=int, default=None, help="短期跟踪天数(默认 7)")
     tp2.set_defaults(func=cmd_topic_convert)
 
     args = parser.parse_args()
@@ -519,13 +521,38 @@ def cmd_topic_list(args):
 
 
 def cmd_topic_convert(args):
+    """临时话题 → 订阅(Day 9:支持短期 / 长期 CLI 参数)"""
+    import asyncio
     from auth import current_user
-    from storage.temp_topics import convert_topic_to_sub
+    from storage.temp_topics import convert_topic_to_sub, get_temp_topic
+    from subscription import parse_nl_to_subscription
     user = current_user()
     user_id = user["id"] if user else "anonymous"
-    sub_id = convert_topic_to_sub(args.tid, user_id=user_id)
+    # CLI 参数: --duration-days N --long(强制长期)
+    duration_days = getattr(args, "duration_days", None)
+    mode = "long" if getattr(args, "long", False) else "short"
+    doc = get_temp_topic(args.tid)
+    if not doc or doc.get("user_id") != user_id:
+        print(f"  ✗ 临时话题 {args.tid} 不存在或不属于你")
+        return
+    if doc.get("converted_to_sub_id"):
+        print(f"  ↻ 已转为订阅 (idempotent): sub_id={doc['converted_to_sub_id']}")
+        return
+    # CLI 是 sync 上下文,asyncio.run 顶层调用 OK
+    parsed_sub = asyncio.run(parse_nl_to_subscription(doc["nl_query"], user_id=user_id, track_mode=mode, duration_days=duration_days))
+    sub_id = convert_topic_to_sub(
+        args.tid,
+        user_id=user_id,
+        parsed_sub=parsed_sub,
+        duration_days=duration_days,
+        track_mode=mode,
+    )
     if sub_id:
         print(f"  ✓ 转订阅成功: sub_id={sub_id}")
+        print(f"    track_mode={mode} track_entity={parsed_sub.get('track_entity') or '(无)'}")
+        if mode == "short":
+            d = duration_days if duration_days else 7
+            print(f"    短期 {d} 天,过期自动停")
     else:
         print(f"  ✗ 转换失败(话题不存在或不属于您)")
 

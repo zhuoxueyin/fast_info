@@ -95,16 +95,38 @@ def _match_field(spec: str, value: int) -> bool:
     return int(spec) == value
 
 
+def compute_next_run_at(sub: dict, now: Optional[datetime] = None) -> datetime:
+    """统一计算下一次触发时间。
+
+    规则:
+    - `interval_min > 0` 时,严格按分钟间隔顺延
+    - 否则按 `cron_expr` 计算下一个命中时间
+    """
+    now = now or datetime.now(timezone.utc)
+    interval_min = int(sub.get("interval_min", 0) or 0)
+    if interval_min > 0:
+        return now + timedelta(minutes=interval_min)
+    cron_expr = (sub.get("cron_expr") or "0 9 * * *").strip()
+    return _next_run_simple(cron_expr, now)
+
+
 # ============================================================
 # NL → Subscription
 # ============================================================
 
-async def parse_nl_to_subscription(nl_query: str, user_id: Optional[str] = None) -> dict:
+async def parse_nl_to_subscription(
+    nl_query: str,
+    user_id: Optional[str] = None,
+    track_mode: str = "long",
+    duration_days: Optional[int] = None,
+) -> dict:
     """
     把自然语言订阅描述解析成结构化 Subscription。
 
     用 nl_parse 模型组(M3 thinking 模式)。
     user_id 不传则从当前 CLI session 取(自动 by 用户)。
+    track_mode: 'long' (默认,长期订阅) / 'short' (短期,带 expires_at)
+    duration_days: 短期订阅天数(track_mode='short' 时生效,默认 7)
     """
     if user_id is None:
         try:
@@ -129,7 +151,8 @@ async def parse_nl_to_subscription(nl_query: str, user_id: Optional[str] = None)
                 "  cron_expr: cron 表达式,默认 '0 9 * * *'\n"
                 "  max_items: 每次最多取 N 条,默认 10\n"
                 "  channels: ['inbox'] (默认站内收件箱)\n"
-                "  interval_min: 自定义间隔分钟;0=用 cron\n\n"
+                "  interval_min: 自定义间隔分钟;0=用 cron\n"
+                "  track_entity: 事件/人物/主题实体名(如果能从描述中识别出具体人物/事件/赛事/发布会等,如 '王力宏'、'世界杯'、'GTC 2026'),用于二次精准跟踪;无法识别时输出 null\n\n"
                 "严格按 JSON 输出,不要 markdown 包裹,不要解释。"
             ),
         },
@@ -169,6 +192,7 @@ async def parse_nl_to_subscription(nl_query: str, user_id: Optional[str] = None)
             "max_items": 10,
             "channels": ["inbox"],
             "interval_min": 0,
+            "track_entity": None,
         }
 
     parsed.setdefault("title", nl_query[:15])
@@ -188,6 +212,10 @@ async def parse_nl_to_subscription(nl_query: str, user_id: Optional[str] = None)
     parsed.setdefault("cron_expr", "0 9 * * *")
     parsed.setdefault("max_items", 10)
     parsed.setdefault("interval_min", 0)
+    parsed.setdefault("track_entity", None)
+    # 清理 track_entity:null/空串 → None
+    if not parsed["track_entity"]:
+        parsed["track_entity"] = None
 
     now = datetime.now(timezone.utc)
     next_run = _next_run_simple(parsed["cron_expr"], now)
@@ -211,7 +239,18 @@ async def parse_nl_to_subscription(nl_query: str, user_id: Optional[str] = None)
         "last_error": None,
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
+        # Day 9:短期跟踪元数据
+        "track_mode": track_mode,
+        "track_entity": parsed.get("track_entity"),
     }
+    # 短期跟踪:加 expires_at + 缩短 cron
+    if track_mode == "short":
+        d = duration_days if duration_days and duration_days > 0 else 7
+        sub["expires_at"] = (now + timedelta(days=d)).isoformat()
+        sub["duration_days"] = d
+        # 短期订阅:每 6 小时一次,事件类热点更及时
+        sub["cron_expr"] = "0 */6 * * *"
+        sub["next_run_at"] = _next_run_simple(sub["cron_expr"], now).isoformat()
     return sub
 
 
@@ -264,12 +303,13 @@ def update_subscription_after_run(sub_id: str, success: bool, error: Optional[st
     sub = db["subscriptions"].find_one({"_id": ObjectId(sub_id)})
     if not sub:
         return
-    next_run = _next_run_simple(sub["cron_expr"], datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    next_run = compute_next_run_at(sub, now)
     update: dict = {
-        "last_run_at": datetime.now(timezone.utc).isoformat(),
+        "last_run_at": now.isoformat(),
         "next_run_at": next_run.isoformat(),
         "run_count": sub.get("run_count", 0) + 1,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": now.isoformat(),
     }
     if success:
         update["last_error"] = None
@@ -292,7 +332,7 @@ async def _find_user_doc(db, user_id: str) -> dict | None:
         return None
 
 
-async def run_subscription(sub: dict) -> dict:
+async def run_subscription(sub: dict, *, trigger: str = "manual", operator: str = "auto") -> dict:
     """
     执行一个订阅(Day 4 升级):
     - L1 硬过滤 + L2 软权重
@@ -320,9 +360,28 @@ async def run_subscription(sub: dict) -> dict:
 
     db = get_async_client()[DEFAULT_DB]
 
-    # channels: 订阅自身字段，为空时默认仅 inbox
+    # channels: 订阅自身字段;空时尝试从 user.default_channels 兜底(Day 7 一致性)
+    user_doc_for_channels: dict | None = None
     if not channels:
-        channels = ["inbox"]
+        from bson import ObjectId
+        u = None
+        try:
+            u = await db["users"].find_one({"_id": ObjectId(user_id)})
+        except Exception:
+            u = None
+        if u:
+            user_doc_for_channels = dict(u)
+            defaults = u.get("default_channels") or ["inbox"]
+            try:
+                from api.routes.settings import _available_channels, CHANNEL_FIELDS
+                avail = _available_channels(dict(u))
+                channels = [c for c in defaults if c in avail and c in CHANNEL_FIELDS]
+            except Exception:
+                channels = list(defaults)
+            if not channels:
+                channels = ["inbox"]
+        else:
+            channels = ["inbox"]
 
     # 1. 从 MongoDB 读最近 lookback_hours 小时的 items
     now_run = datetime.now(timezone.utc)
@@ -414,35 +473,86 @@ async def run_subscription(sub: dict) -> dict:
             pass
 
     # 4. 多渠道推送
+    push_recorded = False
     if new_items:
-        user_doc = await _find_user_doc(db, user_id) or {}
+        # 复用第 1 步拉过的 user_doc(避免重复 Mongo 查询)
+        if user_doc_for_channels is None:
+            user_doc = await _find_user_doc(db, user_id) or {}
+        else:
+            user_doc = user_doc_for_channels
         print(f"  [sub run] {sub_id[:8]} channels={channels} feishu_webhook={'***' if user_doc.get('feishu_webhook') else 'MISSING'} items={len(new_items)}")
-        await _render_and_send(user_doc, sub, new_items, channels)
+        t0 = time.time()
+        results = await _render_and_send(user_doc, sub, new_items, channels)
+        duration_ms = int((time.time() - t0) * 1000)
+        # Day 9:写 push_history(触发来源 + 渠道结果 + items)
+        try:
+            from storage.push_history import record_push
+            await record_push(
+                user_id=user_id,
+                subscription_id=sub_id,
+                subscription_title=sub.get("title", ""),
+                trigger=trigger,
+                operator=operator,
+                channel_results=results,
+                items=[
+                    {
+                        "item_id": str(it.get("_id", "")),
+                        "title": it.get("title", ""),
+                        "url": it.get("url", ""),
+                        "source": it.get("source", ""),
+                    }
+                    for it in new_items
+                ],
+                duration_ms=duration_ms,
+            )
+            push_recorded = True
+        except Exception as e:
+            print(f"  [push_history] write failed (non-fatal): {e}")
 
     return {
         "scanned": max_items * 5,
         "matched": len(candidates),
         "delivered": len(new_items),
+        "push_recorded": push_recorded,
+        "trigger": trigger,
     }
 
 
-async def _render_and_send(user_doc: dict, sub: dict, items: list, channels: list[str]):
-    """渲染订阅消息 + 按 channels 多渠道推送(全部用 Notifier 抽象)"""
+async def _render_and_send(user_doc: dict, sub: dict, items: list, channels: list[str]) -> dict:
+    """Day 9:返回 {channel: {ok, http_status, error}} 让 push_history 能落库。
+
+    Day 7:send_all 第 4 位是 content_html(给 email 用),我们把 HTML 放 keyword
+    body_html=，feishu/wechat/webhook 用 keyword body_md=，feishu interactive
+    用 keyword card=。第 4 位显式传空字符串,避免把 markdown 误填给 content_html。
+
+    Day 9 修复 inbox:
+    "inbox" 不在 notifier 注册表里(它是 Mongo subscriptions_delivered 实现),
+    send_all 看到 inbox 会返 unknown。手工把它映射为 ok(因为 items 已经写过 Mongo,
+    = inbox 已经"送达")。
+    """
     from notifier import send_all
     from .format_push import format_html, format_markdown, format_feishu_card, inbox_url_for
     site_base = os.environ.get("FASTINFO_SITE_BASE", "")
     inbox_url = inbox_url_for(site_base)
     title = f"[fastInfo] {sub.get('title', '订阅')} · {len(items)} 条新内容"
-    # 三种格式主体生成
     body_html  = format_html(sub, items, inbox_url)
     body_md    = format_markdown(sub, items, inbox_url)
     card       = format_feishu_card(sub, items, inbox_url)
-    # 多渠道分发:
-    #   - inbox / email: body_html
-    #   - feishu / wechat / webhook: body_md
-    return send_all(user_doc, channels, title, body_md, items, body_html=body_html, card=card)
+
+    # 拆分 inbox 和 其他 notifier 渠道
+    notifier_channels = [c for c in channels if c != "inbox"]
+    results = send_all(
+        user_doc, notifier_channels, title, "",          # content_html = ""(走 keyword)
+        items,
+        body_md=body_md, body_html=body_html, card=card,
+    )
+    # inbox 渠道的成功判定:items 已写入 subscriptions_delivered 集合
+    # (外层 run_subscription 已经做完),所以这里无条件 ok
+    if "inbox" in channels:
+        results["inbox"] = {"ok": True, "http_status": None, "error": None}
+    return results
 
 
-def run_subscription_sync(sub: dict) -> dict:
+def run_subscription_sync(sub: dict, *, trigger: str = "cli", operator: str = "cli") -> dict:
     """同步入口,给 CLI 用"""
-    return asyncio.run(run_subscription(sub))
+    return asyncio.run(run_subscription(sub, trigger=trigger, operator=operator))

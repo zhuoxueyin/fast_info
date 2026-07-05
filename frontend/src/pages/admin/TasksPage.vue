@@ -6,6 +6,71 @@
       <AdminTabs class="ml-auto" />
     </div>
 
+    <!-- Day 10.5 · 抓取调度策略 -->
+    <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h2 class="text-lg font-semibold">⏰ 抓取调度策略</h2>
+          <p class="text-xs text-slate-500 mt-1">
+            按每源自己的 <code class="px-1 bg-slate-100 rounded">cron_interval_seconds</code> 自动调度,daemon 每 60s 检查到期源。
+            修改策略请到 <b>数据源管理</b> 页面。
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <n-button
+            type="warning"
+            :loading="triggeringAll"
+            :disabled="!scheduleOverview || scheduleOverview.due_now === 0"
+            @click="triggerAllDue"
+          >
+            ▶ 立即抓 {{ scheduleOverview?.due_now ?? 0 }} 个到期源
+          </n-button>
+          <n-button quaternary @click="showScheduleDetail = !showScheduleDetail">
+            {{ showScheduleDetail ? '收起详情' : '查看详情' }}
+          </n-button>
+        </div>
+      </div>
+
+      <div v-if="scheduleOverview" class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-slate-50 rounded p-3">
+          <div class="text-xs text-slate-500">总源数</div>
+          <div class="text-xl font-bold text-slate-900">{{ scheduleOverview.total_sources }}</div>
+        </div>
+        <div class="bg-emerald-50 rounded p-3">
+          <div class="text-xs text-emerald-700">定时调度</div>
+          <div class="text-xl font-bold text-emerald-700">{{ scheduleOverview.active_scheduled }}</div>
+        </div>
+        <div class="bg-amber-50 rounded p-3">
+          <div class="text-xs text-amber-700">仅手动</div>
+          <div class="text-xl font-bold text-amber-700">{{ scheduleOverview.manual_only }}</div>
+        </div>
+        <div
+          :class="['rounded p-3',
+                   scheduleOverview.due_now > 0 ? 'bg-rose-50' : 'bg-slate-50']"
+        >
+          <div class="text-xs" :class="scheduleOverview.due_now > 0 ? 'text-rose-700' : 'text-slate-500'">
+            当前到期
+          </div>
+          <div class="text-xl font-bold" :class="scheduleOverview.due_now > 0 ? 'text-rose-700' : 'text-slate-400'">
+            {{ scheduleOverview.due_now }}
+          </div>
+          <div class="text-[10px] text-slate-400">daemon 下个 tick 也会自动跑</div>
+        </div>
+      </div>
+
+      <!-- 调度详情表 -->
+      <div v-if="showScheduleDetail && scheduleOverview" class="mt-4">
+        <n-data-table
+          :columns="scheduleCols"
+          :data="scheduleOverview.items"
+          :pagination="{ pageSize: 10 }"
+          size="small"
+          :bordered="false"
+          :row-key="(r: any) => r.source_id"
+        />
+      </div>
+    </section>
+
     <!-- 手动触发 ingest -->
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
       <div class="flex items-center justify-between mb-3">
@@ -184,6 +249,7 @@ import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
 import { api } from '@/lib/api'
+import { getScheduleOverview, runSourceNow, type ScheduleRow } from '@/lib/api'
 import AdminTabs from '@/components/AdminTabs.vue'
 
 dayjs.extend(utc)
@@ -192,6 +258,11 @@ dayjs.extend(timezone)
 const msg = useMessage()
 const llmGroups = ref<Record<string, Record<string, any>> | null>(null)
 const runs = ref<any[]>([])
+
+// Day 10.5 · 调度
+const scheduleOverview = ref<Awaited<ReturnType<typeof getScheduleOverview>> | null>(null)
+const showScheduleDetail = ref(false)
+const triggeringAll = ref(false)
 
 // 任务级状态语义(从执行中/成功/失败真实视角)
 const STATUS_TYPE: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
@@ -298,7 +369,13 @@ function stopPolling() {
   }
 }
 
-onBeforeUnmount(() => stopPolling())
+onBeforeUnmount(() => {
+  stopPolling()
+  if (scheduleTimer != null) {
+    clearInterval(scheduleTimer)
+    scheduleTimer = null
+  }
+})
 
 // ===== 调用树跟踪 =====
 const traceVisible = ref(false)
@@ -415,16 +492,133 @@ const SR_LABEL: Record<string, string> = {
 
 async function loadAll() {
   try {
-    const [ll, tr] = await Promise.all([
+    const [ll, tr, sched] = await Promise.all([
       api<{ groups: Record<string, Record<string, any>> }>('/admin/llm/health'),
       api<any[]>('/admin/tasks/runs', { query: { limit: 20 } }),
+      getScheduleOverview(),
     ])
     llmGroups.value = ll.groups
     runs.value = tr
+    scheduleOverview.value = sched
   } catch (e: any) {
     msg.error(e?.data?.detail || '加载失败')
   }
 }
 
-onMounted(loadAll)
+// Day 10.5 · 立即抓所有到期源
+async function triggerAllDue() {
+  const due = (scheduleOverview.value?.items || []).filter(r =>
+    r.is_active && r.interval_seconds > 0 && r.due_in_seconds <= 0
+  )
+  if (due.length === 0) {
+    msg.info('当前无到期源')
+    return
+  }
+  triggeringAll.value = true
+  msg.info(`触发 ${due.length} 个到期源: ${due.slice(0, 3).map(d => d.source_id).join(', ')}${due.length > 3 ? '…' : ''}`)
+  let ok = 0
+  let fail = 0
+  for (const r of due) {
+    try {
+      await runSourceNow(r.source_id, 8)
+      ok++
+    } catch (e) {
+      console.warn(`run-now ${r.source_id}:`, e)
+      fail++
+    }
+  }
+  triggeringAll.value = false
+  if (fail === 0) {
+    msg.success(`已触发 ${ok} 个到期源`)
+  } else {
+    msg.warning(`触发完成:${ok} 成功 / ${fail} 失败`)
+  }
+  await loadAll()
+}
+
+// 调度详情表列
+const scheduleCols: DataTableColumns<ScheduleRow> = [
+  {
+    title: '源',
+    key: 'source_id',
+    width: 180,
+    render: (r) => h('span', { class: 'font-mono text-xs' }, r.source_id),
+  },
+  {
+    title: '启用',
+    key: 'is_active',
+    width: 60,
+    render: (r) => h(NTag, {
+      type: r.is_active ? 'success' : 'default',
+      size: 'small',
+      bordered: false,
+    }, { default: () => r.is_active ? '✓' : '✗' }),
+  },
+  {
+    title: '间隔',
+    key: 'interval_label',
+    width: 80,
+    render: (r) => h('span', { class: 'text-xs' }, r.interval_label),
+  },
+  {
+    title: '上次',
+    key: 'last_run_at',
+    width: 140,
+    render: (r) => h('span', { class: 'text-xs text-slate-500' }, r.last_run_at ? formatTime(r.last_run_at) : '—'),
+  },
+  {
+    title: '下次',
+    key: 'next_run_at',
+    width: 140,
+    render: (r) => h('span', { class: 'text-xs' }, r.next_run_at ? formatTime(r.next_run_at) : '—'),
+  },
+  {
+    title: '距今',
+    key: 'due_in_seconds',
+    width: 100,
+    render: (r) => {
+      if (!r.is_active) return h('span', { class: 'text-xs text-slate-400' }, '禁用')
+      if (r.interval_seconds === 0) return h('span', { class: 'text-xs text-amber-600' }, '手动')
+      const d = r.due_in_seconds
+      if (d <= 0) return h('span', { class: 'text-xs text-rose-600 font-medium' }, `已逾期 ${Math.abs(Math.round(d / 60))} 分`)
+      if (d < 3600) return h('span', { class: 'text-xs text-slate-600' }, `${Math.round(d / 60)} 分后`)
+      return h('span', { class: 'text-xs text-slate-600' }, `${(d / 3600).toFixed(1)} 时后`)
+    },
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 90,
+    render: (r) => h(NButton, {
+      size: 'tiny',
+      type: 'primary',
+      ghost: true,
+      onClick: async () => {
+        try {
+          msg.loading(`抓 ${r.source_id}…`)
+          const res = await runSourceNow(r.source_id, 8)
+          msg.success(`${r.source_id}: 抓 ${res.fetched} / 摘要 ${res.summarized}`)
+          await loadAll()
+        } catch (e: any) {
+          msg.error(`抓取失败: ${e?.message || e}`)
+        }
+      },
+    }, { default: () => '▶ 抓' }),
+  },
+]
+
+let scheduleTimer: number | null = null
+async function refreshScheduleOnly() {
+  try {
+    scheduleOverview.value = await getScheduleOverview()
+  } catch {
+    // 静默
+  }
+}
+
+onMounted(() => {
+  loadAll()
+  // 调度总览 60s 刷新 — 跟 daemon tick 对齐,看到 due_now 自然下降
+  scheduleTimer = window.setInterval(refreshScheduleOnly, 60000)
+})
 </script>

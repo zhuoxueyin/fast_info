@@ -2,30 +2,15 @@
   <n-layout class="min-h-screen bg-slate-50">
     <n-layout-header bordered class="bg-white shadow-sm">
       <div class="max-w-[1280px] mx-auto px-6 py-3 flex items-center gap-5">
-        <router-link to="/" class="text-xl font-bold text-slate-900 flex items-center gap-2 flex-shrink-0">
-          <span class="inline-block w-7 h-7 rounded-md bg-emerald-500 text-white text-center leading-7">⚡</span>
-          fastInfo
+        <router-link to="/" class="flex items-center flex-shrink-0">
+          <BrandLogo size="sm" />
         </router-link>
 
-        <div class="flex-1 max-w-md">
-          <n-input
-            v-model:value="searchQ"
-            size="small"
-            placeholder="搜索资讯 / AI / 量子位"
-            clearable
-            @keyup.enter="goSearch"
-            @clear="onSearchClear"
-          >
-            <template #prefix>
-              <span class="text-slate-400">🔍</span>
-            </template>
-          </n-input>
-        </div>
-
-        <nav class="flex items-center gap-4 text-sm flex-shrink-0">
+        <nav class="flex items-center gap-4 text-sm flex-shrink-0 ml-6">
           <router-link to="/" class="text-slate-700 hover:text-emerald-600 font-medium">🔥 热点资讯</router-link>
           <router-link to="/hot" class="text-slate-700 hover:text-emerald-600 font-medium">📊 今日排行</router-link>
           <router-link v-if="auth.isLoggedIn" to="/me/inbox" class="text-slate-700 hover:text-emerald-600 font-medium">📥 我的推送</router-link>
+          <router-link v-if="auth.isLoggedIn" to="/topics" class="text-slate-700 hover:text-emerald-600 font-medium">🪜 临时话题</router-link>
         </nav>
 
         <div class="flex-1"></div>
@@ -54,7 +39,7 @@
 
     <n-layout-footer class="bg-white border-t">
       <div class="max-w-[1280px] mx-auto px-6 py-4 text-center text-xs text-slate-500">
-        fastInfo · 个人化 AI 情报中枢 ·
+        <span class="font-semibold text-slate-700">fastInfo</span> · 个人化 AI 情报中枢 ·
         <a href="/docs/" class="text-emerald-600 hover:underline" target="_blank">文档</a> ·
         <a href="/swagger" class="text-emerald-600 hover:underline" target="_blank">Swagger UI</a>
       </div>
@@ -63,36 +48,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { NInput, NButton, NDropdown, NLayout, NLayoutHeader, NLayoutContent, NLayoutFooter } from 'naive-ui'
+import { useRouter } from 'vue-router'
+import { NDropdown, NLayout, NLayoutHeader, NLayoutContent, NLayoutFooter } from 'naive-ui'
 import { useAuthStore } from '@/store/auth'
+import BrandLogo from '@/components/BrandLogo.vue'
 
 const router = useRouter()
-const route = useRoute()
 const auth = useAuthStore()
-const searchQ = ref('')
-
-watch(() => route.query.q, (v) => {
-  const newQ = (v as string) || ''
-  if (newQ !== searchQ.value) searchQ.value = newQ
-}, { immediate: true })
-
-function goSearch() {
-  const q = searchQ.value.trim()
-  if (q) {
-    router.push({ path: '/search', query: { q } })
-  } else {
-    router.push({ path: '/' })
-  }
-}
-
-function onSearchClear() {
-  searchQ.value = ''
-  if (route.path === '/search') {
-    router.push({ path: '/' })
-  }
-}
 
 const userMenuOptions = [
   { label: '个人中心', key: 'me' },

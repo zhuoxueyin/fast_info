@@ -87,16 +87,32 @@ def list_user_topics(user_id: str, active_only: bool = True, limit: int = 50) ->
     return list(db["temp_topics"].find(q).sort("created_at", -1).limit(limit))
 
 
-def convert_topic_to_sub(tid: str, user_id: str) -> Optional[str]:
-    """把临时话题转为长期订阅,返回 sub_id(None = 失败)"""
-    from subscription import parse_nl_to_subscription, save_subscription
+def convert_topic_to_sub(
+    tid: str,
+    user_id: str,
+    parsed_sub: dict | None = None,
+    duration_days: int | None = None,
+    track_mode: str = "short",
+    track_entity: str | None = None,
+) -> Optional[str]:
+    """把临时话题转为订阅,返回 sub_id(None = 失败)
+
+    Args:
+        tid: 临时话题 ID
+        user_id: 用户 ID
+        parsed_sub: 由 caller 已经跑过 LLM 解析的 sub 字典(必传,内部不再调 LLM)
+        duration_days: 短期跟踪天数(None = 长期;默认 7 = 短期)
+        track_mode: 'short' (短期,带 expires_at) / 'long' (长期,无 expires_at)
+        track_entity: 事件/人物名(如 "王力宏"、"世界杯"),便于二次跟踪聚焦
+    """
+    if parsed_sub is None:
+        raise ValueError("parsed_sub is required — caller must call parse_nl_to_subscription first")
     doc = get_temp_topic(tid)
     if not doc or doc.get("user_id") != user_id:
         return None
     if doc.get("converted_to_sub_id"):
         return doc["converted_to_sub_id"]  # idempotent
-    # 调 NL 解析
-    parsed_sub = asyncio.run(parse_nl_to_subscription(doc["nl_query"], user_id=user_id))
+    from subscription import save_subscription
     parsed = doc["parsed"]
     parsed_sub["title"] = parsed.get("title") or parsed_sub.get("title")
     parsed_sub["keywords"] = parsed.get("keywords", parsed_sub.get("keywords", []))
@@ -104,8 +120,23 @@ def convert_topic_to_sub(tid: str, user_id: str) -> Optional[str]:
     parsed_sub["categories_l1"] = parsed.get("categories_l1", parsed_sub.get("categories_l1", []))
     parsed_sub["categories_l2"] = parsed.get("categories_l2", parsed_sub.get("categories_l2", []))
     parsed_sub["channels"] = parsed_sub.get("channels", ["inbox"])
+    # 短期跟踪元数据(Day 9 新增)
+    parsed_sub["track_mode"] = track_mode
+    if track_entity:
+        parsed_sub["track_entity"] = track_entity
+    elif parsed.get("title"):
+        # fallback: 用 parsed.title 作为 entity(王力宏、世界杯等)
+        parsed_sub["track_entity"] = parsed["title"]
+    if track_mode == "short":
+        # 短期订阅:默认 7 天,也可由 caller 覆盖
+        d = duration_days if duration_days and duration_days > 0 else 7
+        from datetime import datetime, timezone, timedelta
+        parsed_sub["expires_at"] = (datetime.now(timezone.utc) + timedelta(days=d)).isoformat()
+        parsed_sub["duration_days"] = d
+        # 短期订阅:缩短 cron 到 6 小时一次,事件类热点更及时
+        parsed_sub["cron_expr"] = "0 */6 * * *"
+    # 落库
     sub_id = save_subscription(parsed_sub)
-    # 标记已转
     db = get_sync_client()[DEFAULT_DB]
     db["temp_topics"].update_one(
         {"tid": tid},

@@ -153,12 +153,22 @@
       </section>
 
       <section class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
-        <label class="text-sm font-medium text-slate-700 mb-3 block">推送渠道</label>
+        <div class="flex items-baseline justify-between mb-3">
+          <label class="text-sm font-medium text-slate-700 block">推送渠道</label>
+          <span class="text-xs text-slate-400">来自 Settings 单字段一致性同步,未配置的渠道不会显示</span>
+        </div>
         <n-checkbox-group v-model:value="form.channels" class="!flex !flex-col !gap-2">
-          <n-checkbox value="inbox">站内消息</n-checkbox>
-          <n-checkbox value="feishu">飞书群机器人</n-checkbox>
-          <n-checkbox value="email">邮件</n-checkbox>
+          <n-checkbox
+            v-for="ch in availableChannels"
+            :key="ch.name"
+            :value="ch.name"
+          >
+            {{ ch.label }}
+          </n-checkbox>
         </n-checkbox-group>
+        <p v-if="!availableChannels.length" class="text-xs text-rose-500 mt-2">
+          当前没配任何推送渠道,请到 Settings 配置。
+        </p>
       </section>
 
       <div class="flex gap-3 mt-6">
@@ -205,14 +215,27 @@ const nl = ref('')
 const generating = ref(false)
 const saving = ref(false)
 
-// 用户在 Settings 里配置的"默认推送渠道",作为新建订阅 channels 的初值
-// 空数组/加载失败都兜底为 ['inbox']
+// Day 7:从后端 /notifier/channels 读,只展示 available=true 的渠道(default 数组同步)
+// 单一来源:用户 settings 没配的渠道,前端压根不显示
+type BackendChannel = {
+  name: string
+  label: string
+  required_fields: string[]
+  available: boolean
+}
+const availableChannels = ref<BackendChannel[]>([])
 const defaultChannels = ref<string[]>(['inbox'])
 
 async function loadDefaultChannels(): Promise<string[]> {
   try {
-    const me: any = await api('/settings')
-    const ch = Array.isArray(me?.channels) && me.channels.length ? me.channels : ['inbox']
+    const r: any = await api('/notifier/channels')
+    availableChannels.value = Array.isArray(r?.channels)
+      ? r.channels.filter((ch: BackendChannel) => ch.available)
+      : []
+    // 默认值:后端告诉前端 user.default_channels 是什么(已经按 available 过滤)
+    const ch = Array.isArray(r?.default_channels) && r.default_channels.length
+      ? r.default_channels
+      : ['inbox']
     defaultChannels.value = ch
     return ch
   } catch {

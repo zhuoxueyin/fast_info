@@ -128,12 +128,49 @@ async def get_topic(tid: str, user: dict = Depends(require_user)):
 
 
 @router.post("/now/{tid}/convert")
-async def convert_topic(tid: str, user: dict = Depends(require_user)):
-    """临时话题 → 长期订阅"""
-    sub_id = convert_topic_to_sub(tid, user_id=user["id"])
+async def convert_topic(
+    tid: str,
+    duration_days: Optional[int] = None,
+    track_mode: Optional[str] = None,
+    user: dict = Depends(require_user),
+):
+    """临时话题 → 订阅(Day 9:支持短期 / 长期)
+    duration_days: 短期天数(None = 用默认 7)
+    track_mode: 'short' / 'long'(None = 默认识别为短期)
+    """
+    # 1. 先 await LLM 解析(在 FastAPI event loop 里,不能再 asyncio.run 嵌套)
+    from storage.temp_topics import get_temp_topic
+    doc = get_temp_topic(tid)
+    if not doc or doc.get("user_id") != user["id"]:
+        raise HTTPException(404, "topic not found")
+    if doc.get("converted_to_sub_id"):
+        # idempotent
+        return {
+            "converted": True,
+            "subscription_id": doc["converted_to_sub_id"],
+            "tid": tid,
+            "idempotent": True,
+        }
+    parsed_sub = await parse_nl_to_subscription(doc["nl_query"], user_id=user["id"])
+    # 2. 决定 track_mode:显式传 → 用显式;没传 → 默认 short(临时话题天生是短期诉求)
+    mode = track_mode if track_mode in ("short", "long") else "short"
+    # 3. 同步转订阅(纯写库,不会再调 LLM)
+    sub_id = convert_topic_to_sub(
+        tid,
+        user_id=user["id"],
+        parsed_sub=parsed_sub,
+        duration_days=duration_days,
+        track_mode=mode,
+    )
     if not sub_id:
         raise HTTPException(404, "topic not found")
-    return {"converted": True, "subscription_id": sub_id, "tid": tid}
+    return {
+        "converted": True,
+        "subscription_id": sub_id,
+        "tid": tid,
+        "track_mode": mode,
+        "track_entity": parsed_sub.get("track_entity"),
+    }
 
 
 @router.get("/list")

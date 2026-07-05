@@ -31,7 +31,8 @@ class NLParseRequest(BaseModel):
 
 
 class SubscribePatch(BaseModel):
-    """Day 4:支持 PATCH 修改订阅(暂停/启用/改渠道/改频率)"""
+    """Day 4:支持 PATCH 修改订阅(暂停/启用/改渠道/改频率)
+    Day 9:支持改 track_mode/duration_days/track_entity"""
     is_active: Optional[bool] = None
     title: Optional[str] = None
     channels: Optional[list[str]] = None
@@ -41,6 +42,9 @@ class SubscribePatch(BaseModel):
     categories_l1: Optional[list[str]] = None
     categories_l2: Optional[list[str]] = None
     keywords: Optional[list[str]] = None
+    track_mode: Optional[str] = None      # 'long' / 'short'
+    duration_days: Optional[int] = None   # 改 short 时重算 expires_at
+    track_entity: Optional[str] = None
 
 
 @router.post("/subs/parse")
@@ -65,16 +69,41 @@ async def parse_only(req: NLParseRequest, user: dict = Depends(require_user)):
 @router.post("/subs", response_model=SubscribeResponse)
 async def create_subscription(req: SubscribeRequest, user: dict = Depends(require_user)):
     """NL → 解析 → 存 MongoDB,返回 sub_id。"""
-    sub = await parse_nl_to_subscription(req.nl_query, user_id=user["id"])
+    # Day 9:支持 track_mode / duration_days(临时话题转订阅默认 short)
+    track_mode = req.track_mode if req.track_mode in ("short", "long") else "long"
+    sub = await parse_nl_to_subscription(
+        req.nl_query,
+        user_id=user["id"],
+        track_mode=track_mode,
+        duration_days=req.duration_days,
+    )
     # 用户传了 channels/categories 覆盖解析结果
     if req.channels:
-        sub["channels"] = req.channels
+        # Day 7 一致性:即便用户传了,也要按 settings 实际可用的过滤一次
+        # (勾了"邮件"但没配 SMTP,被静默 reject)
+        from .settings import _available_channels, CHANNEL_FIELDS
+        avail = _available_channels(user)
+        sub["channels"] = [c for c in req.channels if c in avail and c in CHANNEL_FIELDS]
+        # 用户全选了不可用的 → 兜底用 default_channels
+        if not sub["channels"]:
+            defaults = user.get("default_channels") or ["inbox"]
+            sub["channels"] = [c for c in defaults if c in avail and c in CHANNEL_FIELDS] or ["inbox"]
+    else:
+        # 兜底(Day 7 一致性):没传 → 用用户全局默认;
+        # 没有默认 → 至少给 inbox。
+        # 保证入库的 channels 永远是可用渠道,且绝不为空。
+        from .settings import _available_channels, CHANNEL_FIELDS
+        avail = _available_channels(user)
+        defaults = user.get("default_channels") or ["inbox"]
+        sub["channels"] = [c for c in defaults if c in avail and c in CHANNEL_FIELDS] or ["inbox"]
     if req.categories_l1:
         sub["categories_l1"] = req.categories_l1
     if req.categories_l2:
         sub["categories_l2"] = req.categories_l2
     if req.keywords:
         sub["keywords"] = req.keywords
+    if req.track_entity:
+        sub["track_entity"] = req.track_entity
     sub_id = save_subscription(sub)
     sub["_id"] = ObjectId(sub_id)
     return SubscribeResponse(sub=_to_view(sub), parsed={
@@ -115,7 +144,8 @@ async def run_my_subscription(sub_id: str, user: dict = Depends(require_user)):
     if sub.get("user_id") != user["id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="非本人订阅,无权操作")
     try:
-        result = await run_subscription(sub)
+        # Day 9:手动触发的推送标记 trigger=manual,operator=当前用户名
+        result = await run_subscription(sub, trigger="manual", operator=user.get("username", ""))
     except Exception as e:
         update_subscription_after_run(sub_id, success=False, error=str(e))
         raise HTTPException(status_code=500, detail=f"订阅执行失败: {e}")
@@ -125,19 +155,48 @@ async def run_my_subscription(sub_id: str, user: dict = Depends(require_user)):
 
 @router.patch("/subs/{sub_id}", response_model=SubscriptionView)
 async def patch_my_subscription(sub_id: str, req: SubscribePatch, user: dict = Depends(require_user)):
-    """Day 4:暂停 / 启用 / 改字段"""
+    """Day 4:暂停 / 启用 / 改字段
+    Day 9:支持改 track_mode / duration_days(转短期时自动重算 expires_at)"""
     sub = get_subscription(sub_id)
     if not sub:
         raise HTTPException(status_code=404, detail="订阅不存在")
     if sub.get("user_id") != user["id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="非本人订阅,无权操作")
     from storage.mongo_writer import get_db
+    from datetime import datetime, timezone, timedelta
     update: dict = {}
     for k, v in req.model_dump(exclude_unset=True).items():
         update[k] = v
+    # Day 9:改 track_mode → duration_days 时,重算 expires_at
+    if update.get("track_mode") == "short" or (update.get("track_mode") is None and sub.get("track_mode") == "short"):
+        d = update.get("duration_days")
+        if d is None:
+            d = sub.get("duration_days") or 7
+        if update.get("track_mode") is None:
+            # 仅改 duration_days,沿用旧的 track_mode
+            d = int(d)
+            update["duration_days"] = d
+            update["expires_at"] = (datetime.now(timezone.utc) + timedelta(days=d)).isoformat()
+        else:
+            d = int(d) if d else 7
+            update["duration_days"] = d
+            update["expires_at"] = (datetime.now(timezone.utc) + timedelta(days=d)).isoformat()
+            # 转 short:缩短 cron 到 6h
+            update["cron_expr"] = "0 */6 * * *"
+    elif update.get("track_mode") == "long":
+        # 转长期:清掉 expires_at,还原默认 cron
+        update["expires_at"] = None
+        update["duration_days"] = None
+        update["cron_expr"] = "0 9 * * *"
     if update:
-        from datetime import datetime, timezone
         update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        # cron 改了 → 重算 next_run
+        if "cron_expr" in update:
+            try:
+                from subscription import _next_run_simple
+                update["next_run_at"] = _next_run_simple(update["cron_expr"], datetime.now(timezone.utc)).isoformat()
+            except Exception:
+                pass
         get_db()["subscriptions"].update_one({"_id": ObjectId(sub_id)}, {"$set": update})
     sub = get_subscription(sub_id)
     return _to_view(sub)
@@ -212,6 +271,77 @@ async def delete_my_subscription(sub_id: str, user: dict = Depends(require_user)
     return {"deleted": sub_id}
 
 
+@router.get("/me/push-history")
+async def list_my_push_history(
+    user: dict = Depends(require_user),
+    limit: int = Query(50, ge=1, le=200),
+    trigger: Optional[str] = Query(None, description="manual / schedule / test / cli"),
+):
+    """Day 9:用户的推送历史(谁触发的、推什么、走哪些渠道、是否成功)。
+
+    默认只返回当前用户自己的(以防 admin 偷窥别人的)。
+    """
+    from storage.push_history import list_for_user
+    items = await list_for_user(user["id"], limit=limit, trigger=trigger)
+    return {
+        "total": len(items),
+        "items": [
+            {
+                "id": str(d.get("_id", "")),
+                "user_id": d.get("user_id", ""),
+                "subscription_id": d.get("subscription_id"),
+                "subscription_title": d.get("subscription_title", ""),
+                "trigger": d.get("trigger", "unknown"),
+                "operator": d.get("operator", "auto"),
+                "channels_ok": d.get("channels_ok", []),
+                "channels_fail": d.get("channels_fail", []),
+                "channel_results": d.get("channel_results", {}),
+                "items": d.get("items", []),
+                "item_count": d.get("item_count", 0),
+                "sent_at": d.get("sent_at"),
+                "duration_ms": d.get("duration_ms", 0),
+                "error": d.get("error"),
+            }
+            for d in items
+        ],
+    }
+
+
+@router.get("/me/push-history/{history_id}")
+async def get_my_push_history(
+    history_id: str,
+    user: dict = Depends(require_user),
+):
+    """Day 9:推送历史单条详情。"""
+    from storage.push_history import get_by_id
+    d = await get_by_id(history_id, user["id"])
+    if not d:
+        raise HTTPException(status_code=404, detail="推送记录不存在")
+    return {
+        "id": str(d.get("_id", "")),
+        "user_id": d.get("user_id", ""),
+        "subscription_id": d.get("subscription_id"),
+        "subscription_title": d.get("subscription_title", ""),
+        "trigger": d.get("trigger", "unknown"),
+        "operator": d.get("operator", "auto"),
+        "channels_ok": d.get("channels_ok", []),
+        "channels_fail": d.get("channels_fail", []),
+        "channel_results": d.get("channel_results", {}),
+        "items": d.get("items", []),
+        "item_count": d.get("item_count", 0),
+        "sent_at": d.get("sent_at"),
+        "duration_ms": d.get("duration_ms", 0),
+        "error": d.get("error"),
+    }
+
+
+@router.get("/me/push-history-stats")
+async def push_history_stats(user: dict = Depends(require_user)):
+    """Day 9:按 trigger 聚合的推送统计。"""
+    from storage.push_history import stats_for_user
+    return await stats_for_user(user["id"])
+
+
 def _to_view(d: dict) -> SubscriptionView:
     sources = d.get("sources", [])
     if isinstance(sources, str):
@@ -228,6 +358,9 @@ def _to_view(d: dict) -> SubscriptionView:
     channels = d.get("channels", ["inbox"]) or ["inbox"]
     if isinstance(channels, str):
         channels = [c.strip() for c in channels.split(",") if c.strip()]
+    # 兜底(Day 7):空数组 / 全是 unknown → 给 inbox
+    if not channels:
+        channels = ["inbox"]
     return SubscriptionView(
         id=str(d.get("_id", "")),
         user_id=str(d.get("user_id", "")),
@@ -244,4 +377,9 @@ def _to_view(d: dict) -> SubscriptionView:
         last_run_at=d.get("last_run_at"),
         is_active=d.get("is_active", True),
         max_items=d.get("max_items", 10),
+        # Day 9:短期跟踪字段
+        track_mode=d.get("track_mode", "long"),
+        expires_at=d.get("expires_at"),
+        duration_days=d.get("duration_days"),
+        track_entity=d.get("track_entity"),
     )

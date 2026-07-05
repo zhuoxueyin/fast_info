@@ -1,20 +1,50 @@
 <template>
-  <div class="max-w-3xl mx-auto pb-12">
-    <!-- 用户头像区 -->
-    <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6 flex items-center gap-4">
-      <div class="w-14 h-14 rounded-full bg-emerald-500 text-white text-2xl font-bold flex items-center justify-center">
-        {{ auth.user?.username?.[0]?.toUpperCase() || 'A' }}
-      </div>
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <span class="text-lg font-semibold text-slate-900">{{ auth.user?.username || 'admin' }}</span>
-          <n-tag size="small" type="info" :bordered="false">{{ auth.user?.role || 'user' }}</n-tag>
-          <n-tag size="small" :bordered="false">套餐: {{ auth.user?.plan || 'free' }}</n-tag>
+  <div class="max-w-5xl mx-auto pb-12">
+    <!-- 用户头像区(Day 7 三件套: 头像图 / 昵称 / 套餐真值,全部可编辑) -->
+    <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+      <div class="flex items-center gap-4">
+        <!-- 头像: URL → 首字母兜底,首字母取 nickname → username -->
+        <div class="w-14 h-14 rounded-full overflow-hidden bg-emerald-500 text-white text-2xl font-bold flex items-center justify-center flex-shrink-0">
+          <img v-if="auth.user?.avatar_url" :src="auth.user.avatar_url" class="w-full h-full object-cover" referrerpolicy="no-referrer" @error="onAvatarError" />
+          <span v-else>{{ avatarInitial }}</span>
         </div>
-        <div class="text-sm text-slate-500 mt-1">
-          📧 {{ auth.user?.email || '未设置邮箱' }}
+
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <!-- 昵称: nickname → username -->
+            <span class="text-lg font-semibold text-slate-900 truncate">{{ displayName }}</span>
+            <n-tag size="small" type="info" :bordered="false">{{ auth.user?.role || 'user' }}</n-tag>
+            <n-tag size="small" :bordered="false">套餐: {{ planLabel }}</n-tag>
+            <!-- admin 用 admin 套餐标识区分,默认 placeholder 是 free -->
+          </div>
+          <div class="text-xs text-slate-400 mt-1">
+            <span class="font-mono">{{ auth.user?.username }}</span>
+            <span class="mx-1">·</span>
+            📧 {{ auth.user?.email || '未设置邮箱' }}
+          </div>
         </div>
+
+        <n-button size="small" @click="openProfileEdit" class="flex-shrink-0">
+          ✏️ 编辑资料
+        </n-button>
       </div>
+
+      <!-- 资料编辑 Modal(Day 7) -->
+      <n-modal v-model:show="showProfileEdit" preset="card" title="编辑个人资料" style="max-width: 500px;">
+        <n-form-item label="昵称(留空 = 显示用户名)">
+          <n-input v-model:value="profileDraft.nickname" placeholder="例如:小明 / Alice" maxlength="30" show-count />
+        </n-form-item>
+        <n-form-item label="头像 URL(留空 = 显示首字母)">
+          <n-input v-model:value="profileDraft.avatar_url" placeholder="https://example.com/avatar.jpg" />
+        </n-form-item>
+        <n-form-item label="邮箱(可选,仅做展示)">
+          <n-input v-model:value="profileDraft.email" placeholder="your@example.com" />
+        </n-form-item>
+        <div class="flex gap-2 mt-4 justify-end">
+          <n-button @click="showProfileEdit = false">取消</n-button>
+          <n-button type="primary" @click="saveProfile" :loading="savingProfile">保存</n-button>
+        </div>
+      </n-modal>
     </section>
 
     <!-- ==================== 区域1: 我的订阅 ==================== -->
@@ -58,7 +88,9 @@
           </div>
           <div class="flex items-center gap-2 ml-4 flex-shrink-0">
             <n-switch :value="s.is_active" size="small" @update:value="(v: boolean) => toggleActive(s, v)" />
-            <n-button size="tiny" @click="runSub(s.id)">▶</n-button>
+            <!-- Day 7:订阅编辑入口,跳到 /subs/edit/:id -->
+            <n-button size="tiny" @click="$router.push(`/subs/edit/${s.id}`)" title="编辑规则">✏️</n-button>
+            <n-button size="tiny" @click="runSub(s.id)" title="立即运行">▶</n-button>
             <n-popconfirm @positive-click="deleteSub(s.id)">
               <template #trigger>
                 <n-button size="tiny" type="error" ghost>删除</n-button>
@@ -68,6 +100,62 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- ==================== 区域1.5: 推送历史 (Day 9) ==================== -->
+    <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+          📬 推送历史
+          <n-tag size="small" :bordered="false" v-if="recentPush.total">{{ recentPush.total }}</n-tag>
+        </h2>
+        <n-button size="small" @click="$router.push('/me/push-history')">
+          查看全部 →
+        </n-button>
+      </div>
+
+      <div v-if="recentPush.loading" class="text-center text-slate-400 py-4 text-sm">加载中…</div>
+      <div v-else-if="!recentPush.items.length" class="text-center py-6 text-slate-400 text-sm">
+        还没有推送记录
+      </div>
+      <ul v-else class="space-y-2">
+        <li
+          v-for="r in recentPush.items"
+          :key="r.id"
+          class="flex items-start gap-3 py-2 border-b border-slate-100 last:border-b-0 last:pb-0"
+        >
+          <span class="text-lg leading-none">{{ triggerIcon(r.trigger) }}</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm text-slate-900 font-medium truncate">
+                {{ r.subscription_title || '(订阅已删)' }}
+              </span>
+              <n-tag size="tiny" :type="triggerTagType(r.trigger)" :bordered="false">
+                {{ triggerLabel(r.trigger) }}
+              </n-tag>
+              <n-tag
+                v-for="ch in r.channels_ok"
+                :key="'ok-'+ch"
+                size="tiny"
+                :bordered="false"
+                type="success"
+              >✓ {{ chLabel(ch) }}</n-tag>
+              <n-tag
+                v-for="ch in r.channels_fail"
+                :key="'fail-'+ch"
+                size="tiny"
+                :bordered="false"
+                type="error"
+              >✗ {{ chLabel(ch) }}</n-tag>
+            </div>
+            <div class="text-xs text-slate-400 mt-1">
+              🕒 {{ formatTime(r.sent_at) }} · {{ r.item_count }} 条新内容 ·
+              <span v-if="r.operator && r.operator !== 'auto'">由 {{ r.operator }} 触发</span>
+              <span v-else>系统自动</span>
+            </div>
+          </div>
+        </li>
+      </ul>
     </section>
 
     <!-- ==================== 区域2: 推送设置 ==================== -->
@@ -104,11 +192,19 @@
 
       <!-- 默认推送渠道 -->
       <div class="mb-4">
-        <h3 class="font-semibold text-slate-800 mb-3">📡 默认推送渠道（新建订阅时默认勾选）</h3>
+        <h3 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+          📡 默认推送渠道
+          <span class="text-xs text-slate-400 font-normal">未配置的渠道不会显示(与 Settings 单字段一致)</span>
+        </h3>
         <n-checkbox-group v-model:value="setting.channels">
           <n-space>
-            <n-checkbox value="inbox">站内</n-checkbox>
-            <n-checkbox value="feishu">飞书群机器人</n-checkbox>
+            <n-checkbox
+              v-for="ch in availableChannels"
+              :key="ch.name"
+              :value="ch.name"
+            >
+              {{ ch.label }}
+            </n-checkbox>
           </n-space>
         </n-checkbox-group>
       </div>
@@ -124,18 +220,123 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   NButton, NEmpty, NTag, NSwitch,
   NInput, NFormItem,
-  NCheckbox, NCheckboxGroup, NSpace, NPopconfirm, useMessage,
+  NCheckbox, NCheckboxGroup, NSpace, NPopconfirm,
+  NModal, useMessage,
 } from 'naive-ui'
 import { useAuthStore } from '@/store/auth'
-import { api } from '@/lib/api'
-import type { Subscription } from '@/types/api'
+import { api, listPushHistory } from '@/lib/api'
+import type { Subscription, PushHistoryRecord } from '@/types/api'
 
 const auth = useAuthStore()
 const msg = useMessage()
+
+// ==================== Day 7 用户三件套 ====================
+
+const PLAN_LABELS: Record<string, string> = {
+  free: '免费版',
+  pro: 'Pro 版',
+  team: '团队版',
+  admin: '管理员',
+}
+
+const displayName = computed(() => {
+  const nick = auth.user?.nickname?.trim()
+  return nick || auth.user?.username || 'admin'
+})
+
+const avatarInitial = computed(() => {
+  const c = displayName.value || ''
+  return (c[0] || 'A').toUpperCase()
+})
+
+const planLabel = computed(() => {
+  const p = auth.user?.plan || 'free'
+  return PLAN_LABELS[p] ?? p
+})
+
+// 编辑资料
+const showProfileEdit = ref(false)
+const savingProfile = ref(false)
+const profileDraft = ref({
+  nickname: '',
+  avatar_url: '',
+  email: '',
+})
+
+function openProfileEdit() {
+  profileDraft.value = {
+    nickname: auth.user?.nickname ?? '',
+    avatar_url: auth.user?.avatar_url ?? '',
+    email: auth.user?.email ?? '',
+  }
+  showProfileEdit.value = true
+}
+
+function onAvatarError(e: Event) {
+  // 图片加载失败,把 src 清掉,显示首字母兜底
+  if (auth.user) (auth.user as any).avatar_url = null
+}
+
+async function saveProfile() {
+  savingProfile.value = true
+  try {
+    const r: any = await api('/auth/me', {
+      method: 'PATCH',
+      body: {
+        nickname: profileDraft.value.nickname,
+        avatar_url: profileDraft.value.avatar_url,
+        email: profileDraft.value.email,
+      },
+    })
+    // 同步到 auth store
+    auth.user = { ...auth.user, ...r }
+    localStorage.setItem('user', JSON.stringify(auth.user))
+    msg.success('已保存')
+    showProfileEdit.value = false
+  } catch (e: any) {
+    msg.error(e?.data?.detail || '保存失败')
+  } finally {
+    savingProfile.value = false
+  }
+}
+
+// ==================== 推送历史 (Day 9) ====================
+const recentPush = ref({ items: [] as PushHistoryRecord[], loading: false, total: 0 })
+
+async function loadRecentPush() {
+  recentPush.value.loading = true
+  try {
+    const r = await listPushHistory({ limit: 5 })
+    recentPush.value = { items: r.items, loading: false, total: r.total }
+  } catch {
+    recentPush.value.loading = false
+  }
+}
+
+const TRIGGER_META: Record<string, { label: string; icon: string; tagType: 'default' | 'info' | 'success' | 'warning' }> = {
+  manual:   { label: '手动',   icon: '🖱', tagType: 'info' },
+  schedule: { label: '调度',   icon: '⏰', tagType: 'success' },
+  test:     { label: '测试',   icon: '🧪', tagType: 'warning' },
+  cli:      { label: 'CLI',   icon: '💻', tagType: 'default' },
+  unknown:  { label: '未知',   icon: '❔', tagType: 'default' },
+}
+
+function triggerLabel(t: string) { return TRIGGER_META[t]?.label ?? t }
+function triggerIcon(t: string)  { return TRIGGER_META[t]?.icon ?? '❔' }
+function triggerTagType(t: string) { return TRIGGER_META[t]?.tagType ?? 'default' }
+
+function formatTime(iso?: string | null) {
+  if (!iso) return '-'
+  try {
+    return new Date(iso).toLocaleString('zh-CN', { hour12: false })
+  } catch {
+    return iso
+  }
+}
 
 // ==================== 我的订阅 ====================
 const subs = ref<Subscription[]>([])
@@ -189,10 +390,18 @@ async function deleteSub(id: string) {
 }
 
 // ==================== 推送设置 ====================
+// Day 7:从后端 /notifier/channels 取 available 列表,跟 settings 真同步
+type BackendChannel = {
+  name: string
+  label: string
+  required_fields: string[]
+  available: boolean
+}
 const setting = ref({
   feishu_webhook: '',
   channels: ['inbox'] as string[],
 })
+const availableChannels = ref<BackendChannel[]>([])
 const settingsLoading = ref(false)
 const savingSettings = ref(false)
 const testingFeishu = ref(false)
@@ -200,9 +409,13 @@ const testingFeishu = ref(false)
 async function loadSettings() {
   settingsLoading.value = true
   try {
-    const r = await api<any>('/settings')
-    setting.value.feishu_webhook = r.feishu_webhook || ''
-    setting.value.channels = r.channels || ['inbox']
+    const [cs, me] = await Promise.all([
+      api<{ channels: BackendChannel[] }>('/notifier/channels'),
+      api<any>('/settings'),
+    ])
+    availableChannels.value = (cs.channels || []).filter(c => c.available)
+    setting.value.feishu_webhook = me.feishu_webhook || ''
+    setting.value.channels = me.channels || ['inbox']
   } catch (e: any) {
     msg.error('加载设置失败: ' + (e?.data?.detail || ''))
   } finally {
@@ -255,5 +468,6 @@ async function testChannel(name: string) {
 onMounted(() => {
   loadSubs()
   loadSettings()
+  loadRecentPush()
 })
 </script>

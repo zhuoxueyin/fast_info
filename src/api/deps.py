@@ -45,6 +45,8 @@ def _enrich_user(payload: dict) -> dict:
         "role":                    u.get("role", "user"),
         "plan":                    u.get("plan", "free"),
         "email":                   u.get("email", "") or "",
+        "nickname":                u.get("nickname", "") or "",
+        "avatar_url":              u.get("avatar_url", "") or "",
         "default_channels":        u.get("default_channels", []) or [],
         "feishu_webhook":          u.get("feishu_webhook", "") or "",
         "feishu_open_id":          u.get("feishu_open_id", "") or "",

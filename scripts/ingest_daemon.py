@@ -3,13 +3,18 @@ fastInfo · 后台抓取守护进程
 ================================
 
 设计:独立进程,跟 CLI / 订阅 / API 解耦。
-- 默认每 30 分钟跑一次 `ingest`
-- 日志输出到 data/ingest-daemon.log
-- 用 Windows Task Scheduler / Linux systemd timer 触发
+
+Day 1-Day 9:固定 interval,默认 30 分钟全量跑一次
+Day 10.5:升级为按 source_config.cron_interval_seconds 调度
+    - 每源独立的 cron 节奏
+    - daemon tick = 60s,到期才跑(支持 0 = 手动)
+    - 读 ingest_schedule.py 的 compute_due_sources
 
 跑法:
-    python scripts/ingest_daemon.py           # 默认每 30 分钟
-    python scripts/ingest_daemon.py --interval 600 --once   # 单次跑(测试)
+    python scripts/ingest_daemon.py                    # 默认调度器模式,tick 60s
+    python scripts/ingest_daemon.py --legacy           # 老模式:每 30 min 全量
+    python scripts/ingest_daemon.py --once             # 单次跑全量(测试)
+    python scripts/ingest_daemon.py --once --sources huxiu,weibo_hot  # 单次跑指定源
 """
 from __future__ import annotations
 import argparse
@@ -24,125 +29,75 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-# 加载 .env(本地开发 + Docker volume 挂 /app/.env 都覆盖)
+# === Windows GBK 兜底 ===
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+# 加载 .env
 from _env import load_env
 load_env()
 
 
-async def run_once(args) -> dict:
-    """执行一次完整 ingest 流程。
+# ============================================================
+# 单源抓取 + LLM 摘要 + 入库(独立任务)
+# ============================================================
 
-    返回 dict 便于 API 携带 warning 字段:
-        {
-            "fetched": int,        # 抓回原始条数
-            "new": int,            # 去重后待处理条数
-            "summarized": int,     # 成功摘要条数
-            "failed": int,         # 摘要失败条数
-            "warning": str,        # 警告原因(如 MMX_API_KEY 未设、源全失败等), 空 = 无
-        }
+async def run_source(source_id: str, limit: int, task_run_id: str, trigger: str) -> dict:
+    """跑单个源 — 抓 + LLM 摘要 + 入库。
+
+    返回 {fetched, summarized, failed, warning}
+    source_runs 由 fetch_one 内的 record_source_run 自动写。
     """
-    import uuid
-    from crawler.collectors import fetch_all
+    from crawler.collectors import fetch_one_source
     from storage.mongo_writer import (
-        upsert_item_async, get_done_urls, get_recent_title_hashes,
-        ensure_indexes, create_task_run_pending, update_task_run_finished,
+        get_done_urls, get_recent_title_hashes,
     )
     from llm.model_registry import build_default_registry
     import re as _re, json as _json
 
-    # Day 5: 允许外部传入 run_id(给 API 异步触发用,保证返回的 run_id
-    # 跟写入 task_runs 的是同一个 uuid)
-    run_id = getattr(args, "run_id", None) or str(uuid.uuid4())
     started_at = datetime.now(timezone.utc)
-    trigger = getattr(args, "trigger", "scheduled")
-    operator = getattr(args, "operator", None)
-    print(f"[{started_at.isoformat()}] ingest start (limit={args.limit}) run_id={run_id} trigger={trigger}")
+    empty = lambda w="": {"fetched": 0, "summarized": 0, "failed": 0, "warning": w}
 
-    empty_result = lambda w="": {"fetched": 0, "new": 0, "summarized": 0, "failed": 0, "warning": w}
-
-    # Day 5: 立刻写一条 status=running 占位记录,让前端轮询能看到
-    try:
-        create_task_run_pending({
-            "run_id": run_id,
-            "started_at": started_at,
-            "trigger": trigger,
-            "operator": operator,
-            "limit": getattr(args, "limit", 8),
-        })
-    except Exception as e:
-        print(f"  ⚠ create_task_run_pending failed(忽略): {e}")
-
-    try:
-        ensure_indexes()
-    except Exception as e:
-        print(f"  ✗ ensure_indexes failed: {e}")
-        try:
-            update_task_run_finished(run_id, {
-                "finished_at": datetime.now(timezone.utc),
-                "status": "failed",
-                "warning": f"ensure_indexes 失败: {e}",
-            })
-        except Exception:
-            pass
-        return empty_result(f"ensure_indexes failed: {e}")
+    items = await fetch_one_source(source_id, limit=limit, task_run_id=task_run_id)
+    if not items:
+        return empty("没有新内容(可能全部已抓过或源返回空)")
 
     done = get_done_urls()
     recent_titles = get_recent_title_hashes(days=7)
-
-    items = await fetch_all(limit_per_source=args.limit, task_run_id=run_id)
     new_items = [it for it in items if it.id not in done]
-    # 跨源标题去重:7 天内已有相同规范化标题的,跳过(保留最早来源)
-    before_dedup = len(new_items)
     new_items = [it for it in new_items if not it.title_hash or it.title_hash not in recent_titles]
-    print(f"  fetched {len(items)}, new {before_dedup}, after title-dedup {len(new_items)}")
 
     if not new_items:
-        # Day 5: 即便没新内容也要 update task_runs(否则状态卡 running)
-        try:
-            update_task_run_finished(run_id, {
-                "finished_at": datetime.now(timezone.utc),
-                "status": "done",
-                "items_fetched": len(items),
-                "items_summarized": 0,
-                "items_failed": 0,
-                "warning": "没有新内容(可能全部已抓过,或所有源都返回空)",
-            })
-        except Exception:
-            pass
-        return empty_result("没有新内容(可能全部已抓过,或所有源都返回空)")
+        return empty("没有新内容(全部已抓过)")
 
     if not os.environ.get("MMX_API_KEY") and not os.environ.get("KIMI_API_KEY"):
-        print("  ✗ MMX_API_KEY / KIMI_API_KEY 都没设")
-        try:
-            update_task_run_finished(run_id, {
-                "finished_at": datetime.now(timezone.utc),
-                "status": "failed",
-                "items_fetched": len(items),
-                "items_summarized": 0,
-                "items_failed": len(new_items),
-                "warning": "MMX_API_KEY 和 KIMI_API_KEY 都未配置 — 无法生成摘要",
-            })
-        except Exception:
-            pass
-        return empty_result("MMX_API_KEY 和 KIMI_API_KEY 都未配置 — 无法生成摘要")
+        return empty("MMX_API_KEY / KIMI_API_KEY 都未配置")
+
+    from storage.mongo_writer import upsert_item_async
+    from taxonomy import normalize_l1
 
     registry = build_default_registry()
     sem = asyncio.Semaphore(3)
     completed = 0
     failed = 0
 
+    system_prompt = (
+        "你是中文资讯编辑。对给定文章标题和摘要进行处理，输出严格JSON（无markdown包裹，无多余文字）：\n"
+        '{"title_zh": "中文标题(若原标题已是中文则与原标题一致;若为英文必须翻译成简洁中文,实体名/队名/球员名可保留英文,≤30字)", '
+        '"summary": "120-180字中文摘要，信息完整，不空洞", "key_points": ["要点1","要点2","要点3"], '
+        '"category": "二级分类(如大模型/AI芯片/新能源/自动驾驶/A股/影视等)", '
+        '"category_l1": "一级分类，必须是：科技/AI/体育/娱乐/财经/汽车/其他 之一", '
+        '"relevance": 0.0-10.0热度分}\n'
+        "规则：category_l1必须从给定列表中选最贴切的一个；summary必须有实质内容不要空；title_zh必须输出。"
+    )
+
     async def one(item):
         nonlocal completed, failed
         async with sem:
-            system_prompt = (
-                "你是中文资讯编辑。对给定文章标题和摘要进行处理，输出严格JSON（无markdown包裹，无多余文字）：\n"
-                '{"title_zh": "中文标题(若原标题已是中文则与原标题一致;若为英文必须翻译成简洁中文,实体名/队名/球员名可保留英文,≤30字)", '
-                '"summary": "120-180字中文摘要，信息完整，不空洞", "key_points": ["要点1","要点2","要点3"], '
-                '"category": "二级分类(如大模型/AI芯片/新能源/自动驾驶/A股/影视等)", '
-                '"category_l1": "一级分类，必须是：科技/AI/体育/娱乐/财经/汽车/其他 之一", '
-                '"relevance": 0.0-10.0热度分}\n'
-                "规则：category_l1必须从给定列表中选最贴切的一个；summary必须有实质内容不要空；title_zh必须输出。"
-            )
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"标题: {item.title}\n来源: {item.source}\n原文摘要: {item.summary_html[:500]}"},
@@ -182,18 +137,15 @@ async def run_once(args) -> dict:
             if not summary_text or len(summary_text) < 10:
                 summary_text = fallback_summary
 
-            # title_zh: 优先使用 LLM 翻译的中文标题
             title_zh = (parsed.get("title_zh") or "").strip()
             original_title = item.title
             title_translated = False
             if title_zh and len(title_zh) >= 2:
-                # LLM 给了中文翻译，用它作为主标题
                 final_title = title_zh
                 title_translated = (title_zh != original_title)
             else:
                 final_title = original_title
 
-            from taxonomy import normalize_l1
             cat_l1 = parsed.get("category_l1") or normalize_l1(parsed.get("category"))
             if cat_l1 not in ("科技","AI","体育","娱乐","财经","汽车","其他"):
                 cat_l1 = normalize_l1(parsed.get("category")) or "其他"
@@ -210,7 +162,6 @@ async def run_once(args) -> dict:
                 "category": parsed.get("category", "其他") or "其他",
                 "category_l1": cat_l1,
                 "relevance": float(parsed.get("relevance", 0.5) or 0.5),
-                "summary_model": "fallback" if not parsed.get("summary_model") else parsed.get("summary_model"),
                 "summary_at": datetime.now(timezone.utc).isoformat(),
             }
             try:
@@ -221,67 +172,260 @@ async def run_once(args) -> dict:
 
     await asyncio.gather(*[one(it) for it in new_items])
     await registry.aclose()
-    print(f"  done: {completed} ok, {failed} failed")
 
-    # 写 task_runs(管理员页面用)
-    finished_at = datetime.now(timezone.utc)
-    per_source: dict = {}
-    for it in items:
-        per_source.setdefault(it.source, {
-            "fetched": 0, "summarized": 0, "errors": 0, "latency_ms": 0,
-        })
-        per_source[it.source]["fetched"] += 1
-    # 统计每个源的摘要成功/失败数
-    new_items_set = {it.id: it.source for it in new_items}
-    done_set = set(done)
-    # 从 completed/failed 反推各源(简化:按 new_items 中各源的比例分配,近似)
-    per_source_success: dict = {}
-    per_source_fail: dict = {}
-    for it in new_items:
-        per_source_success.setdefault(it.source, 0)
-        per_source_fail.setdefault(it.source, 0)
-    # 用 completed 和 failed 按比例分配(简化版,后续可精细化)
-    total_new = len(new_items)
-    if total_new > 0:
-        for src in per_source_success:
-            src_new = sum(1 for it in new_items if it.source == src)
-            ratio = src_new / total_new
-            per_source[src]["summarized"] = int(completed * ratio)
-            per_source[src]["errors"] = int(failed * ratio)
     warning = ""
-    final_status = "done"
     if completed == 0 and failed > 0:
-        warning = f"全部 {failed} 条 LLM 摘要失败(查 daemon 日志)"
-        final_status = "failed"  # 全失败:真实视角是失败,不再标 done
+        warning = f"全部 {failed} 条 LLM 摘要失败"
     elif completed > 0 and failed > 0:
         warning = f"部分失败:成功 {completed} / 失败 {failed}"
-        # partial 由 _normalize_task_run_status 在读取时归一化,这里落 done
-        # 但为了让前端不依赖读取层也能看到,显式标 partial
-        final_status = "partial"
-    try:
-        update_task_run_finished(run_id, {
-            "finished_at": finished_at,
-            "status": final_status,
-            "items_fetched": len(items),
-            "items_summarized": completed,
-            "items_failed": failed,
-            "per_source": per_source,
-            "warning": warning,
-        })
-    except Exception as e:
-        print(f"  ⚠ update_task_run_finished 失败(忽略): {e}")
+
     return {
         "fetched": len(items),
-        "new": len(new_items),
         "summarized": completed,
         "failed": failed,
         "warning": warning,
     }
 
 
+async def run_due_sources(due_sources: list[str], args) -> dict:
+    """按 due 源列表逐源跑,共用一条 task_run。"""
+    import uuid
+    from storage.mongo_writer import (
+        create_task_run_pending, update_task_run_finished,
+    )
+
+    run_id = getattr(args, "run_id", None) or str(uuid.uuid4())
+    trigger = getattr(args, "trigger", "scheduled")
+    operator = getattr(args, "operator", None)
+
+    started_at = datetime.now(timezone.utc)
+    print(f"[{started_at.isoformat()}] ingest start (scheduler, due={len(due_sources)}) run_id={run_id} trigger={trigger}")
+
+    try:
+        create_task_run_pending({
+            "run_id": run_id,
+            "started_at": started_at,
+            "trigger": trigger,
+            "operator": operator,
+            "limit": args.limit,
+            "mode": "scheduler",
+            "due_sources": due_sources,
+        })
+    except Exception as e:
+        print(f"  [warn] create_task_run_pending failed: {e}")
+
+    total_fetched = 0
+    total_summarized = 0
+    total_failed = 0
+    per_source: dict = {}
+    warnings: list[str] = []
+
+    for sid in due_sources:
+        try:
+            r = await run_source(sid, limit=args.limit, task_run_id=run_id, trigger=trigger)
+            total_fetched += r.get("fetched", 0)
+            total_summarized += r.get("summarized", 0)
+            total_failed += r.get("failed", 0)
+            per_source[sid] = {
+                "fetched": r.get("fetched", 0),
+                "summarized": r.get("summarized", 0),
+                "errors": r.get("failed", 0),
+            }
+            w = r.get("warning")
+            if w:
+                warnings.append(f"{sid}: {w}")
+        except Exception as e:
+            total_failed += 1
+            per_source[sid] = {"fetched": 0, "summarized": 0, "errors": 1}
+            warnings.append(f"{sid}: {type(e).__name__}: {str(e)[:100]}")
+
+    finished_at = datetime.now(timezone.utc)
+    final_status = "done"
+    if total_summarized == 0 and total_failed > 0:
+        final_status = "failed"
+    elif total_summarized > 0 and total_failed > 0:
+        final_status = "partial"
+
+    try:
+        update_task_run_finished(run_id, {
+            "finished_at": finished_at,
+            "status": final_status,
+            "items_fetched": total_fetched,
+            "items_summarized": total_summarized,
+            "items_failed": total_failed,
+            "per_source": per_source,
+            "warning": "; ".join(warnings) if warnings else "",
+        })
+    except Exception as e:
+        print(f"  [warn] update_task_run_finished failed: {e}")
+
+    return {
+        "run_id": run_id,
+        "status": final_status,
+        "fetched": total_fetched,
+        "summarized": total_summarized,
+        "failed": total_failed,
+        "sources_ran": len(due_sources),
+    }
+
+
+async def run_legacy(args) -> dict:
+    """Day 1-Day 9 老模式:全量 fetch_all,保留兼容(给 --legacy 用)"""
+    import uuid
+    from crawler.collectors import fetch_all
+    from storage.mongo_writer import (
+        upsert_item_async, get_done_urls, get_recent_title_hashes,
+        ensure_indexes, create_task_run_pending, update_task_run_finished,
+    )
+    from llm.model_registry import build_default_registry
+    import re as _re, json as _json
+
+    run_id = getattr(args, "run_id", None) or str(uuid.uuid4())
+    started_at = datetime.now(timezone.utc)
+    trigger = getattr(args, "trigger", "scheduled")
+
+    empty = lambda w="": {"fetched": 0, "summarized": 0, "failed": 0, "warning": w}
+    print(f"[{started_at.isoformat()}] ingest start (legacy full, limit={args.limit}) run_id={run_id}")
+
+    try:
+        ensure_indexes()
+        create_task_run_pending({
+            "run_id": run_id, "started_at": started_at,
+            "trigger": trigger, "operator": getattr(args, "operator", None),
+            "limit": args.limit, "mode": "legacy_full",
+        })
+    except Exception:
+        pass
+
+    done = get_done_urls()
+    recent_titles = get_recent_title_hashes(days=7)
+
+    items = await fetch_all(limit_per_source=args.limit, task_run_id=run_id)
+    new_items = [it for it in items if it.id not in done]
+    new_items = [it for it in new_items if not it.title_hash or it.title_hash not in recent_titles]
+
+    if not new_items:
+        update_task_run_finished(run_id, {
+            "finished_at": datetime.now(timezone.utc), "status": "done",
+            "items_fetched": len(items), "items_summarized": 0, "items_failed": 0,
+            "warning": "没有新内容",
+        })
+        return empty("没有新内容")
+
+    if not os.environ.get("MMX_API_KEY") and not os.environ.get("KIMI_API_KEY"):
+        update_task_run_finished(run_id, {
+            "finished_at": datetime.now(timezone.utc), "status": "failed",
+            "items_fetched": len(items), "items_failed": len(new_items),
+            "warning": "API keys 都未配置",
+        })
+        return empty("API keys 未配置")
+
+    from taxonomy import normalize_l1
+    registry = build_default_registry()
+    sem = asyncio.Semaphore(3)
+    completed = 0
+    failed = 0
+
+    system_prompt = (
+        "你是中文资讯编辑。对给定文章标题和摘要进行处理，输出严格JSON（无markdown包裹，无多余文字）：\n"
+        '{"title_zh": "中文标题(若原标题已是中文则与原标题一致;若为英文必须翻译成简洁中文,实体名/队名/球员名可保留英文,≤30字)", '
+        '"summary": "120-180字中文摘要，信息完整，不空洞", "key_points": ["要点1","要点2","要点3"], '
+        '"category": "二级分类(如大模型/AI芯片/新能源/自动驾驶/A股/影视等)", '
+        '"category_l1": "一级分类，必须是：科技/AI/体育/娱乐/财经/汽车/其他 之一", '
+        '"relevance": 0.0-10.0热度分}\n'
+        "规则：category_l1必须从给定列表中选最贴切的一个；summary必须有实质内容不要空；title_zh必须输出。"
+    )
+
+    async def one(item):
+        nonlocal completed, failed
+        async with sem:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"标题: {item.title}\n来源: {item.source}\n原文摘要: {item.summary_html[:500]}"},
+            ]
+            fallback_summary = (item.summary_html or item.title)[:200].strip()
+            parsed = None
+            try:
+                result = await registry.get("short_summary").chat(messages, max_tokens=800, temperature=0.3)
+                content = result["choices"][0]["message"]["content"].strip()
+                cleaned = _re.sub(r"<(?:think|thinking)>.*?</(?:think|thinking)>", "", content, flags=_re.DOTALL).strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.strip("`").split("\n", 1)[-1].rsplit("\n", 1)[0]
+                try:
+                    parsed = _json.loads(cleaned) if cleaned.startswith("{") else None
+                except Exception:
+                    parsed = None
+                if parsed is None:
+                    m = _re.search(r"\{[\s\S]*\}", cleaned)
+                    if m:
+                        try:
+                            parsed = _json.loads(m.group(0))
+                        except Exception:
+                            parsed = None
+            except Exception:
+                parsed = None
+            if not parsed:
+                parsed = {"summary": fallback_summary, "key_points": [], "category": "其他", "category_l1": "其他", "relevance": 0.5}
+            summary_text = (parsed.get("summary") or "").strip() or fallback_summary
+            title_zh = (parsed.get("title_zh") or "").strip()
+            final_title = title_zh if (title_zh and len(title_zh) >= 2) else item.title
+            cat_l1 = parsed.get("category_l1") or normalize_l1(parsed.get("category"))
+            if cat_l1 not in ("科技","AI","体育","娱乐","财经","汽车","其他"):
+                cat_l1 = normalize_l1(parsed.get("category")) or "其他"
+            doc = {
+                "url_hash": item.id, "id": item.id,
+                "source": item.source, "source_url": item.source_url, "url": item.url,
+                "title": final_title, "title_original": item.title, "title_hash": item.title_hash,
+                "title_translated": (final_title != item.title),
+                "published_at": item.published_at, "fetched_at": item.fetched_at,
+                "author": item.author, "tags": item.tags, "language": item.language,
+                "summary": summary_text,
+                "key_points": parsed.get("key_points", []) or [],
+                "category": parsed.get("category", "其他") or "其他",
+                "category_l1": cat_l1,
+                "relevance": float(parsed.get("relevance", 0.5) or 0.5),
+                "summary_at": datetime.now(timezone.utc).isoformat(),
+            }
+            try:
+                await upsert_item_async(doc)
+                completed += 1
+            except Exception:
+                failed += 1
+
+    await asyncio.gather(*[one(it) for it in new_items])
+    await registry.aclose()
+
+    per_source: dict = {}
+    for it in items:
+        per_source.setdefault(it.source, {"fetched": 0, "summarized": 0, "errors": 0})
+        per_source[it.source]["fetched"] += 1
+
+    final_status = "partial" if (completed > 0 and failed > 0) else ("done" if completed > 0 else "failed")
+    update_task_run_finished(run_id, {
+        "finished_at": datetime.now(timezone.utc),
+        "status": final_status,
+        "items_fetched": len(items),
+        "items_summarized": completed,
+        "items_failed": failed,
+        "per_source": per_source,
+        "warning": "; ".join(warnings) if 'warnings' in dir() else "",
+    })
+
+    return {
+        "run_id": run_id, "status": final_status,
+        "fetched": len(items), "summarized": completed, "failed": failed,
+    }
+
+
 def log_line(msg: str, log_file: Path):
     line = f"[{datetime.now(timezone.utc).isoformat()}] {msg}\n"
-    print(line, end="")
+    try:
+        print(line, end="")
+    except (UnicodeEncodeError, OSError):
+        try:
+            sys.stdout.write(line.encode("utf-8", "replace").decode("ascii", "replace"))
+        except Exception:
+            pass
     try:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with log_file.open("a", encoding="utf-8") as f:
@@ -290,36 +434,85 @@ def log_line(msg: str, log_file: Path):
         pass
 
 
+async def scheduler_loop(args, log_file: Path):
+    """调度器主循环(Day 10.5 默认)。
+
+    - tick_interval(默认 60s)检查一次
+    - 读 source_config + source_runs,算出 due 源
+    - 到期的跑(走 run_due_sources),共用一条 task_run
+    - 没源 due,啥都不写
+    """
+    from storage.ingest_schedule import compute_due_sources, pick_due_sources
+
+    log_line(f"scheduler started, tick={args.tick_interval}s, limit={args.limit}", log_file)
+
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            schedule = compute_due_sources(now=now)
+            due = pick_due_sources(schedule, now=now)
+            if due:
+                log_line(f"due {len(due)} sources: {','.join(due)}", log_file)
+                r = await run_due_sources(due, args)
+                log_line(f"  -> status={r['status']} fetched={r['fetched']} summarized={r['summarized']} failed={r['failed']}", log_file)
+        except Exception as e:
+            log_line(f"tick err: {e}", log_file)
+            log_line(traceback.format_exc(), log_file)
+        await asyncio.sleep(args.tick_interval)
+
+
+async def legacy_loop(args, log_file: Path):
+    """老模式:每 interval 全量跑一次(给不想用调度器的用户保留)"""
+    log_line(f"legacy daemon started, interval={args.interval}s, limit={args.limit}", log_file)
+    while True:
+        try:
+            r = await run_legacy(args)
+            log_line(f"  -> status={r.get('status')} fetched={r.get('fetched')} summarized={r.get('summarized')}", log_file)
+        except Exception as e:
+            log_line(f"ingest error: {e}", log_file)
+            log_line(traceback.format_exc(), log_file)
+        await asyncio.sleep(args.interval)
+
+
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--interval", type=int, default=1800, help="轮询间隔(秒)")
+    parser.add_argument("--interval", type=int, default=1800, help="[legacy] 全量跑间隔秒")
+    parser.add_argument("--tick-interval", type=int, default=60, help="[scheduler] 检查间隔秒(默认 60s)")
     parser.add_argument("--limit", type=int, default=8, help="每源抓多少条")
     parser.add_argument("--once", action="store_true", help="只跑一次退出")
+    parser.add_argument("--sources", type=str, default=None, help="[--once 时用] 指定 source_ids,逗号分隔")
+    parser.add_argument("--legacy", action="store_true", help="用老模式(全量每 interval 跑)")
     parser.add_argument("--log", default="data/ingest-daemon.log", help="日志文件")
     args = parser.parse_args()
 
     log_file = Path(args.log)
 
     if args.once:
-        try:
-            r = await run_once(args)
-            print(f"\n✓ ingest 一次完成,新增 {r['summarized']} 条")
-            if r.get("warning"):
-                print(f"  ⚠ warning: {r['warning']}")
-        except Exception as e:
-            log_line(f"✗ ingest error: {e}\n{traceback.format_exc()}", log_file)
-            sys.exit(1)
+        if args.sources:
+            due = [s.strip() for s in args.sources.split(",") if s.strip()]
+            print(f"[once] running specified sources: {due}")
+            r = await run_due_sources(due, args)
+            print(f"\n  status={r['status']} fetched={r['fetched']} summarized={r['summarized']}")
+        elif args.legacy:
+            r = await run_legacy(args)
+            print(f"\n  [legacy] status={r.get('status')} fetched={r.get('fetched')} summarized={r.get('summarized')}")
+        else:
+            # 默认 --once 走调度器:列出所有 due 源并跑
+            from storage.ingest_schedule import compute_due_sources, pick_due_sources
+            schedule = compute_due_sources()
+            due = pick_due_sources(schedule)
+            print(f"[once-scheduler] due sources: {due}")
+            if not due:
+                print("[once-scheduler] no due sources, nothing to do")
+                return
+            r = await run_due_sources(due, args)
+            print(f"\n  status={r['status']} fetched={r['fetched']} summarized={r['summarized']}")
         return
 
-    log_line(f"daemon started, interval={args.interval}s, limit={args.limit}", log_file)
-    while True:
-        try:
-            await run_once(args)
-        except Exception as e:
-            log_line(f"✗ ingest error: {e}", log_file)
-            log_line(traceback.format_exc(), log_file)
-        log_line(f"sleeping {args.interval}s", log_file)
-        await asyncio.sleep(args.interval)
+    if args.legacy:
+        await legacy_loop(args, log_file)
+    else:
+        await scheduler_loop(args, log_file)
 
 
 if __name__ == "__main__":

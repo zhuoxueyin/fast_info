@@ -14,27 +14,27 @@
 
 ---
 
-## 1. 现状速览(2026-07-03,Day 4 ✅)
+## 1. 现状速览(2026-07-05,Day 9 ✅ + Day 10 双 hotfix)
 
 | 维度 | 当前 |
 |---|---|
-| 阶段 | **MVP5 · 源可管理 + 可监控** (Day 5, 2026-07-04) |
-| 最新里程碑 | Day 4:14 RSS + 5 KOL + L1/L2 分类 + 5 渠道推送 + 移动端 /m |
-| 数据 | `items` 113(含 L1) · `subscriptions` 17(含 channels/L1L2/interval_min) · `subscriptions_delivered` 143 · `users` 13 · `task_runs` 2 · `source_config` 1 |
-| 数据源 | **14 RSS**(科技/AI/财经/体育/娱乐/汽车)+ **5 KOL**(微博/X/小红书) |
+| 阶段 | **MVP11 · Day 11 完成**(失败源修复 + 同类替换)(Day 11, 2026-07-05) |
+| 最新里程碑 | **Day 11(失败源修复 + 同类替换)**:1) cls 改走主页 SSR JSON 抓取(`fetch_cls_home`,正则抠 `hotArticleData` + `json.loads(strict=False)`);2) huxiu 替换为 leiphone 雷锋网(科技/AI 同类,实测 RSS 200 + 600KB+ feed);3) autohome 直接 disable(官方 RSS 404 + SPA + API 封闭,标 Phase 4);4) **顺手修 `upsert_item_async` _id immutable bug**(pymongo insert 失败 mutate dict 后 update 触发 immutable field 错误,update 前 pop `_id`);详见 `docs/day11-deliverable.md`。**Day 10 hotfix #2 · 今日排行冲击榜单**:`/api/hot` 重构加 `mode=category` + `max_per_category`;新增 `/api/hot/categories` 一次拿 7 个 L1 完整榜单;`HotPage.vue` 重写为「总榜 TOP 10(🥇🥈🥉 加冕)+ 分榜汇总(左 L1 导航 + 右完整榜单)」;`MobileHot.vue` 同步升级(横滑 tab + 单列卡);emoji 全部换 lucide-vue-next icon 跨平台无字体依赖;详见 `docs/day10-hotfix-hot-leaderboard.md`。**Day 10 hotfix #1**(推送 GBK):1) notifier 4 处 print → logging + ASCII,2) subs_scheduler TextIOWrapper UTF-8 兜底,3) `send_all` 透传 notifier 返 dict 不再丢 http_status;详见 `docs/day10-hotfix-push-gbk.md`。Day 9 主线(临时话题入口 + 短期跟踪 + 转订阅 fix + 推送历史):`TopicsPage.vue`+`MobileTopicsPage.vue`;subscriptions 加 `track_mode/expires_at/duration_days/track_entity`;LLM 识别事件/人物实体;转订阅选 3/7/14/30 天/长期;`scripts/init_tester.py` 创建 tester 账号(Day 8 P-TEST) |
+| 数据 | `items` 130+(+6 cls/leiphone stub) · `subscriptions` 5(4 老 + 1 王力宏短期)· `subscriptions_delivered` 26 · `users` **2** (admin + tester) · `task_runs` 2 · `source_config` 18(原 19 -huxiu/auto 启用 -1 leiphone) · `source_runs` ~50 · `temp_topics` 2 |
+| 数据源 | **14 RSS**(科技/AI/财经/体育/娱乐;**huxiu / autohome 已 disabled,新增 leiphone**)+ **5 KOL**(微博/X/小红书;微博 3 用户 KOL disabled 等 OpenAPI) |
 | LLM | M2.7-highspeed → M2.7 → M3 → K2.6(四级 fallback) |
 | 存储 | MongoDB(主) |
-| 推送渠道 | **5 种**:`inbox` / `email`(SMTP)/ `feishu` / `wechat` / `webhook` |
+| 推送渠道 | **5 种**:`inbox` / `email`(SMTP)/ `feishu` / `wechat` / `webhook` — 前端按 settings 实际配齐动态展示 |
 | 分类 | **L1**(7):科技/AI/体育/娱乐/财经/汽车/其他 + **L2**(30+) |
 | 后台 daemon | `ingest_daemon` 30 min + `subs_scheduler` 60s 自动跑订阅 |
-| 接口 | CLI + FastAPI(**42** endpoint) + Web(11 页面) + **Mobile(6 页面)** + Docs(12 篇) |
-| 源管理 | `source_config` 19 条(多文档) + `source_runs` 每日 ~33 条 + `system_alerts` 事件总账 |
-| 源自动化 | huxiu 多镜像 fallback / nitter 5 mirror 轮询 / 微博 OpenAPI 脚手架 / 连续失败 ≥5 自动禁用 + 告警 |
+| 接口 | CLI + FastAPI(**43** endpoint) + Web(11 页面) + **Mobile(6 页面)** + Docs(12 篇) |
+| 源管理 | `source_config` 18 条(多文档,2 disabled) + `source_runs` + `system_alerts` + **批量启停 API** + **recent_runs[3]** |
+| 源自动化 | huxiu 多镜像 fallback(已弃) / nitter 5 mirror 轮询 / cls 主页 SSR JSON 抓取(Day 11) / 微博 OpenAPI 脚手架 / 连续失败 ≥5 自动禁用 + 告警 + 批量运维 |
 | 部署目标 | 阿里云 ECS 2C2G(~¥30/月) |
-| 代码规模 | `src/` 9 包(含 `notifier/` + `taxonomy.py` + `crawler/collectors.py`)· `scripts/` 15 个 |
+| 代码规模 | `src/` 9 包(含 `notifier/` + `taxonomy.py` + `crawler/collectors.py`)· `scripts/` 17 个(+1 `init_tester` +1 `migrate_subscriptions_channels`) |
 | 端口标准化 | 本地 L-* (8000/8080) + Docker S-* (18000/18080) — 见 **`docs/ports-分配方案.md`** |
 
-详细里程碑:**`docs/day1-deliverable.md`** / **`docs/day2-deliverable.md`** / **`docs/day3-deliverable.md`** / **`docs/day4-deliverable.md`** / **`docs/ports-分配方案.md`**。
+详细里程碑:**`docs/day1-deliverable.md`** / **`docs/day2-deliverable.md`** / **`docs/day3-deliverable.md`** / **`docs/day4-deliverable.md`** / **`docs/day5-deliverable.md`** / **`docs/day6-deliverable.md`** / **`docs/day7-deliverable.md`** / **`docs/day8-deliverable.md`** / **`docs/day9-deliverable.md`** / **`docs/day10-hotfix-push-gbk.md`** / **`docs/day10-hotfix-hot-leaderboard.md`** / **`docs/ports-分配方案.md`**。
 
 ---
 
@@ -81,13 +81,48 @@
 |---|---|---|
 | **P1** | **拒绝历史兼容** | 不写兼容旧数据/旧格式的 fallback。数据不规范直接修数据，不要修代码去兜。 |
 | **P2** | **唯一链路、唯一写法** | 每个功能只有一条数据流、一种查询方式。禁止同一件事有两条路径（如 ObjectId + username 双路查用户）。 |
-| **P3** | **admin 就是唯一用户** | 所有设计以 admin 为准。不为 smoke_*/local/testuser 等假用户写特殊逻辑。测试数据直接清库重建。 |
+| **P3** | **admin 就是唯一业务用户** | 所有业务设计以 admin 为准。不为 smoke_*/local/testuser 等假用户写特殊逻辑。生产/演示/截图都用 admin。 |
 
-**代码审查检查点**：
+#### P-TEST · 测试账号规范(Day 7 加入)
+
+> 🚨 **本项目所有测试 / 调试脚本只许用测试账号 `tester`,不许在 admin 库里造数据。**
+
+| # | 规则 | 理由 |
+|---|---|---|
+| P-TEST-1 | **测试账号只用一个**:`username=tester`,`password=Tester@2026`(由 `scripts/init_tester.py` 创建,幂等可重跑) | 唯一来源,避免满地假账号污染 |
+| P-TEST-2 | **测试脚本必须用 tester 登录**(Bearer token 走 `/api/auth/login`),不许直接 `db["subscriptions"].insert_one(...)` 之类绕过鉴权 | 真实链路验证,不漏 P2 之类的鉴权 bug |
+| P-TEST-3 | **不许在 admin 库里造数据**:`db.users.find_one({"username":"admin"})` 后 insert 是禁术——一旦遗留在 admin 库里就破坏 P1(脏数据污染) | 数据规范,清不清得掉都会成为隐患 |
+| P-TEST-4 | **诊断脚本命名带 `_` 前缀**(`_diag.py` `_repro.py` `_day7_regress.py`),用完 `mavis-trash` 掉,不进 git | 不污染交付物 |
+| P-TEST-5 | **测试残留清理优先于回滚**:连续失败的回归脚本必须最后一步 `db.subscriptions.delete_many({"user_id": "<tester_id>"})` 兜底,失败则用 `--reset` 重新建账号 | 防止越测越脏 |
+| P-TEST-6 | **admin 跑过的脚本立刻停,改 tester 重跑**:如果发现脚本动了 admin(回查脚本里是否出现 `username=='admin'` 字符串),改用 tester 重跑并把已污染数据手工清理 | 兜底纪律 |
+
+**使用示例**(合规 vs 违规):
+
+```python
+# ✅ 合规:测试账号 + 清理尾巴
+import sys; sys.path.insert(0, r"D:\WORK\trae\fast_info\src")
+db = get_sync_client()["fastinfo"]
+tester_id = db.users.find_one({"username":"tester"})["_id"]
+
+# 创建测试订阅
+db["subscriptions"].insert_one({"user_id": str(tester_id), "title": "TEST·foo", ...})
+
+# 测试结束,一次性清理
+db["subscriptions"].delete_many({"user_id": str(tester_id)})
+```
+
+```python
+# 🚫 违规:在 admin 里直接造数据
+admin = db.users.find_one({"username": "admin"})
+db["subscriptions"].insert_one({"user_id": str(admin["_id"]), "title": "TEST", ...})
+```
+
+**代码审查检查点**:
 - `_find_user_doc` 是否只用 `ObjectId` 一种方式查？ ✅ 不允许 username fallback
-- settings/notifier 是否有多余的渠道（如 `feishu_dm` 孤儿渠道）？ ✅ 只有活跃渠道
-- 订阅执行 channels 是否有多层 fallback？ ✅ 订阅自己的 channels 字段，空则默认 `["inbox"]`
+- settings/notifier 是否有多余的渠道(如 `feishu_dm` 孤儿渠道)？ ✅ 只有活跃渠道
+- 订阅执行 channels 是否有多层 fallback？ ✅ 订阅自己的 channels 字段,空则 fallback 到 user.default_channels,再 fallback 到 `["inbox"]`(Day 7 三层兜底)
 - `_id` 是否统一为 ObjectId？ ✅ `init_admin.py` 不再用 `"u_admin"` 字符串 _id
+- **新增**:任何脚本字符串里出现 `'admin'` 作为 user_id 来源,就是 P-TEST-3 违规
 
 ### 2.4 数据流(Subscription 一次执行)
 
@@ -548,7 +583,8 @@ bash scripts/restart_api.sh                       # Linux/macOS
 | GET  | `/api/stats` | 公开 | 库统计 + 索引 |
 | GET  | `/api/search?q=&limit=` | 公开 | MongoDB 全文检索 |
 | GET  | `/api/today?limit=&source=&category=` | 公开 | 最近 N 条 |
-| GET  | `/api/hot?limit=&hours=&threshold=` | 公开 | 今日热点 |
+| GET  | `/api/hot?limit=&hours=&threshold=&mode=&max_per_category=&category=` | 公开 | 今日热点(Day 10 加 `mode=category` 单类完整榜 + `max_per_category` 截断) |
+| GET  | `/api/hot/categories?limit=&hours=&threshold=` | 公开 | 🆕 今日分榜汇总(一次拿 7 个 L1 的 TOP N) |
 | GET  | `/api/items?ids=a,b,c` | 公开 | 批量查(逗号分隔 id) |
 | GET  | `/api/items/{id}` | 公开 | 单条详情 |
 | POST | `/api/auth/register` | 公开 | 注册 |
@@ -714,8 +750,18 @@ await registry.aclose()
 | **Day 2** | FastAPI 化 | 15 endpoint + JWT 鉴权 + e2e smoke 13/13 + 文档同步 | ✅ |
 | **Day 3** | Web 平台 + 文档站 | Vue3 前端 11 页面 + VitePress 文档站 12 篇 + 后端 9 个新 API + admin 视图 | ✅ |
 | **Day 4** | 多源 + KOL + 二级分类 + 多渠道推送 + 移动端 | 14 RSS + 5 KOL + L1/L2 + 5 渠道 Notifier + /m 移动端 + subs_scheduler | ✅ **今日** |
-| **Day 5** | 源可管理 + 可监控 | 19 源 × source_runs + 8 admin API + SourcesPage 升级 + 自动禁用 + 告警 + huxiu/nitter 多镜像 | ✅ **今日** |
-| **Day 6+** | 推送可靠性 + 移动端完善 + DevOps Day 6 (5 服务镜像化) | 死信队列 / 重试 / 移动端订阅管理 / 平板适配 / Phase 4 真 KOL API (X v2 / 微博 OpenAPI) | ⏳ |
+| **Day 5** | 源可管理 + 可监控 + SourcesPage 增强 | 19 源 × source_runs + 8 admin API + SourcesPage 升级 + 批量启停 + 自动禁用 + 告警 + huxiu/nitter 多镜像 | ✅ |
+| **Day 6** | 实时依赖监控(GBK bug 修) | daemon GBK 兜底 + `reap_stale_task_runs` 一键清理 + `/api/admin/monitoring` 聚合 8 组件 + MonitoringPage 红黄绿 + 一键重启 daemon + 一键重启用 disabled 源 | ✅ |
+| **Day 6v2** | 监控重构 + SourcesPage 跨页同步 | check_web/docs/daemon 三组聚合 + MonitoringPage 三段式(服务/任务/资源) + 去手动 reap 按钮 + SourcesPage 跨页自动刷新(focus + visibilitychange + sources-changed 事件) | ✅ |
+| **Day 7** | 订阅链路一致性(single source) | `GET /notifier/channels` 加 `available` + `default_channels`(单一来源);`subs.create` + `run_subscription` 三层 fallback 到 user.default_channels;前端 NewSubPage / MePage / SettingsPage 渠道动态展示;`scripts/migrate_subscriptions_channels.py` 回填 9 条老订阅;`send_all` 位置参数顺手修正;**飞书实测收到推送** | ✅ |
+| **Day 8** | 用户三件套 + 订阅二次编辑 + 测试纪律 | `users` 加 `nickname / avatar_url`;MePage 顶部三件套重渲染(头像 URL→首字母 / 昵称→username / 套餐真值)+「编辑资料」Modal;订阅卡片「✏️」编辑 → `/subs/edit/:id` → `PATCH /api/subs/{id}`;**`scripts/init_tester.py` 创建 `tester` 账号 + AGENTS.md §2.3 P-TEST 6 条纪律** | ✅ |
+| **Day 9** | 临时话题入口 + 短期跟踪 + 转订阅 RuntimeError 修复 | 新增 `TopicsPage.vue` + `MobileTopicsPage.vue` + 顶 nav + 底 tab 加入口;修转订阅 `RuntimeError`(拆 `convert_topic_to_sub` 的 LLM/写库,FastAPI handler 改 await);`subscriptions` 加 `track_mode`/`expires_at`/`duration_days`/`track_entity` 四字段,LLM 自动识别事件/人物实体(王力宏、世界杯等),转订阅弹 Modal 选 3/7/14/30 天 / 长期,cron 缩短到 6h,`subs_scheduler` 过期自动停;`SubscribeRequest/Patch/SubscriptionView/_to_view` + `POST /api/topics/now/{tid}/convert?duration_days=N&track_mode=short` 全链路接入 | ✅ |
+| **Day 9(增)** | 推送历史 + 触发来源识别 | 新增 `push_history` 集合(`user_id / subscription_id / trigger / operator / channels_ok/fail / channel_results / items / sent_at / duration_ms`);`notifier.send_all` + 4 channel 全部返结构化 `{ok, http_status, error}`;`run_subscription(trigger, operator)` 透传并落历史;`scripts/subs_scheduler` 透 `trigger="schedule"`;`GET /api/me/push-history[?trigger=]` + `/push-history/{id}` + `/push-history-stats` 3 路由;前端 `PushHistoryPage.vue` 全屏 + `MePage` 缩略;**顺手修 inbox 渠道 unknown bug**(inbox 不在 notifier 注册表,在 `_render_and_send` 单独标 ok);详见 `docs/day9-deliverable.md` | ✅ |
+| **Day 10 hotfix** | notifier GBK 死循环 + send_all http_status 透传 | `src/notifier/__init__.py` 4 处 print → `logging.info/warning` + ASCII `[OK]/[FAIL]`;`scripts/subs_scheduler.py` 加 win32 TextIOWrapper(同 api_server.py 模式);`send_all` 透传 dict 不再当 bool;新记录 `feishu.status=200 err=`,老 3 条 GBK 失败留作对照;详见 `docs/day10-hotfix-push-gbk.md` | ✅ **今日(hotfix)** |
+| **Day 10 hotfix #2** | 今日排行升级为冲击榜单 | `/api/hot` 重构加 `mode=category` / `max_per_category`;**新增** `/api/hot/categories` 一次返 7 类目 TOP N;`HotPage.vue` 重写「总榜 TOP 10 + 分榜汇总」双区(🥇🥈🥉 加冕);`MobileHot.vue` 同步升级(横滑 tab + 单列卡);emoji 全换 lucide icon;详见 `docs/day10-hotfix-hot-leaderboard.md` | ✅ **今日(hotfix)** |
+| **Day 10+** | SourcesPage TS 修复 + track_entity prompt 优化 + P-TEST 演练 + BSON Date 迁移 | SourcesPage.vue `columns` 加类型 cast;LLM prompt 剥"动态""最新"等修饰;「已转为订阅 #xxx」加跳订阅编辑;用 tester 跑一遍 convert_topic 全链路;统一 `now_utc()` 改 BSON Date(Day 7 留下的债);**+ HF-1 清理 53 处 print 含 ✗/✓**(其它 CLI/smoke/admin_sources 可选批量换 logging) | ⏳ |
+| **Day 11** | 失败源修复 + 同类替换 + upsert_item_async _id bug | **cls** 改走主页 SSR JSON 抓取(`fetch_cls_home`,正则抠 `hotArticleData` + `json.loads(strict=False)`);**huxiu** 替换为 **leiphone 雷锋网**(科技/AI 同类,实测 RSS 200 + 600KB+ feed);**autohome** 直接 disable(官方 RSS 404 + SPA + API 封闭,标 Phase 4);**顺手修 `upsert_item_async` _id immutable bug**(pymongo insert 失败 mutate dict 后 update 触发 immutable field 错误,update 前 pop `_id`);详见 `docs/day11-deliverable.md` | ✅ **今日** |
+| **Day 12** | HF-1 收尾(53 处 print 改 logging + ASCII) | CLI / smoke / admin_sources 批量替换 `print(\"✓...\")` 为 `logging.info(\"[OK] ...\")`;admin API smoke 同步;保留原始 GBK-safe 输出给 win32 控制台 | ⏳ 下一棒 |
 
 **更新节奏**:每日完工 → 写 `docs/day{N}-deliverable.md` → 回填本文件 §1 / §5 / §6 相应章节。
 
@@ -804,6 +850,29 @@ await registry.aclose()
 | **Day 5** | source_runs 自动禁用的 source_config 联动 + alarm | ✅ 已上线 | ✅ 关闭 |
 | **P-CLEAN** | 代码清理：移除 feishu_dm 孤儿渠道、_id 统一 ObjectId、去掉过度 fallback | ✅ 已完成 | ✅ 关闭 |
 | **P-MIGRATE** | admin 的 _id 从 `"u_admin"` 迁移到 ObjectId（init_admin.py 已改，存量 admin 需重建） | 重建：`python scripts/init_admin.py --username admin --password xxx --reset` | ⚠️ 需手动执行 |
+| **NEW-10** | 批量启停无确认弹窗 + 无 undo | 直接 toggle 可逆,误操作可立即恢复;后续加 history 再 undo | Day 7+ |
+| **NEW-11** | "仅显示异常源"是前端筛,不分页联动 | 一次性筛到底,源 >100 再改后端 | Day 7+ |
+| **NEW-12** | ~~`source_config.l1` 全是 `""`,SourcesPage L1 筛选永远 0 命中~~ | 根因:`_default_for_rss/_kol` 写死 `l1=""`,seed 没读 `SOURCE_L1_DEFAULT`。修复:`seed_from_registry` 显式读 `SOURCE_L1_DEFAULT.get(sid, "其他")`;存量跑 `scripts/backfill_source_l1.py` 回填(幂等)。 | ✅ Day 6.5 已关闭 |
+| **NEW-13** | ~~失败源未修复:cls/wallstreetcn 公开端点 418/404,bilibili RSS empty feed,weibo KOL 公开 scrape 被风控 302,huxiu 全网 timeout,autohome /rss 已下~~ | 根因分类:①官方 RSS 已下线(autohome/wallstreetcn) ②公开 scrape 风控(weibo×2/huxiu) ③RSS 端点失效(bilibili) ④公共 API 风控(cls)。修复:①cls/wallstreetcn → RSSHub 多镜像(rssforever/injahow/rsshub.app) ②bilibili → 官方 JSON API(web_location=333.934 白名单)+ fetch_bilibili_hot fetcher ③huxiu/autohome/weibo×2 → disable 标记原因 ④新增 zhihu_hot(RSSHub) + weibo:hot(头条 JSON,补热搜缺口)。详见 `docs/day6v2-fixes.md`。 | ✅ Day 7 hotfix 已关闭 |
+| **NEW-14** | 公共 RSSHub 镜像偶尔 503 | cls/wallstreetcn/zhihu_hot 单次可能 fail,但 mirror fallback 三镜像轮询后总有一个能用;30min daemon 自动重试 | 接受,持续观察 |
+| **NEW-15** | `weibo:hot` 实际走头条 JSON,source_id 名实不符 | 已更新 display_name="热搜词热榜";source_id 保留避免 Mongo 数据迁移 | 接受 |
+| **NEW-16** | 微博用户 KOL(weibo:1887344341/weibo:1643971635)缺失 | 财经/社会类 KOL 暂缺 | Phase 4 接 Weibo OpenAPI 后恢复 |
+| **Day 9** | 转订阅 `RuntimeError: asyncio.run() cannot be called from a running event loop` | `convert_topic_to_sub` 拆 LLM/写库,FastAPI handler 改 await,修好 | ✅ **Day 9 已关闭** |
+| **NEW-17** | `frontend/src/pages/admin/SourcesPage.vue` TS 严格性报错(`columns` 类型不严格匹配 Naive UI `TableColumns<any>`) | 历史(Day 6 留);`vite build` 跳过 vue-tsc 不影响产物 | Day 10+ |
+| **NEW-18** | 转订阅后 topic 详情页"已转为订阅 #xxx" 没有跳订阅编辑的链接 | 用户改不了新增的短期订阅 | Day 10+ |
+| **NEW-19** | `track_entity` 直接用 `parsed.title`,LLM 没单独识别实体(「王力宏动态」存的就是"王力宏动态",没剥掉"动态") | 短期能用,但精准度有限 | Day 10+ prompt 优化 |
+| **HF-1** | 其他 53 处 print 含 ✗/✓(CLI / smoke / admin_sources / fastinfo.py 等) | 同根症状,但**不阻塞推送链路**;仅在用户手动跑这些脚本时控制台喷 UnicodeEncodeError | Day 10+ 批量清理 |
+| **HF-2** | push_history 时间字段是 ISO 字符串,非 BSON Date(Day 7 留下的债) | 字典序碰巧 == 时序,短期不致命 | Day 10+ 主线 |
+| **HF-3** | `send_all` 在 Day 9 改造时把 `notifier.send()` 返的 dict 当 bool 判 `if ok:`,真实 `http_status` 被丢成 None | push_history status 字段永久 None | ✅ **Day 10 hotfix 已关闭** |
+| **HF-4** | notifier `_post_webhook` 在 try 块内 print 含 `\u2717` → GBK stdout 抛 UnicodeEncodeError → 冒泡到 FeishuNotifier.send → send_all except 写成「推送失败」 | push_history 误标 `trigger='schedule'` 飞书全失败 | ✅ **Day 10 hotfix 已关闭** |
+| **HF-5** | 总榜模式每 L1 最多 3 条,某些类目热门内容(>8 条同时高热度)被压到第 4 位及之后 | 用户想看完整榜单点左侧分类即可,但有"第 4 名就不上榜"的反直觉 | 已通过 `mode=category` + `/hot/categories` 解决 | ✅ **Day 10 hotfix #2 已关闭** |
+| **HF-6** | mobile `/m/*` 路由没嵌套在 `/m` 父路由下,顶 nav 走 PC 版 `DefaultLayout` | mobile 主题可读但顶部混搭 PC nav | Day 10+ 路由重构 |
+| **HF-7** | 暗色模式未适配(渐变色 + 浅文字对比可能不够) | 截图深色模式需另测 | Day 10+ |
+| **HF-8** | `upsert_item_async` duplicate 时 update 触发 `WriteError: Performing an update on the path '_id' would modify the immutable field '_id'` | pymongo `insert_one` 失败 mutate item dict 自动加 `_id`,catch 块 update 时把 mutated dict `$set` 进去触发;任何源第二次抓相同 url 都会假死 | 修复:update 前 `{k: v for k, v in item.items() if k != "_id"}` 过滤掉 `_id` | ✅ **Day 11 已关闭** |
+| **NEW-20** | 汽车类源暂缺(autohome 已 disabled) | 汽车资讯低频需求,Phase 4 评估易车 / 盖世 / 汽车之家新能源板块 / RSSHub autohome route | Phase 4 |
+| **NEW-21** | cls 主页 Next.js SSR 结构变化风险 | 升级 schema 后正则失效,抓取 fail;5 次连续失败自动 disable 兜底 | 接受 — `source_runs.consecutive_fails` 自动 disable 兜底 |
+| **NEW-22** | `feishu` / `wechat` / `webhook` / CLI / smoke / admin_sources 53 处 print 含 ✗/✓ 未统一改 logging | 用户手动跑这些脚本时控制台喷 GBK UnicodeEncodeError;但生产 daemon 不受影响(Day 10 hotfix 已修 notifier 推送链路) | Day 12 HF-1 收尾批量清理 |
+| **NEW-23** | 公共 RSSHub 镜像 2026-07-05 大面积死(rsshub.app / injahow / rssforever 大量 path 404) | cls / zhihu_hot / wallstreetcn 受影响;cls 已切换主页 JSON 抓取;zhihu_hot / wallstreetcn 还在 RSSHub 多镜像 fallback,单次失败就 fail,下次轮询可能成功 | 长期观察,Phase 4 评估自建 RSSHub / 私有镜像 / 付费源 |
 
 ---
 
@@ -845,6 +914,7 @@ python fastinfo.py stats                             # MongoDB 状态 / 索引
 - ✅ subs run 第一次 `delivered > 0`,再次 `delivered = 0`(去重 OK)
 - ✅ CLI `stats` 列出 4 个表的索引
 - ✅ `curl /healthz` 返回 `mongo_version` 字段
+- ✅ **notifier GBK hotfix 验证(Day 10)**: `python fastinfo.py subs run <id>` 后 `db.push_history.find({'trigger':'cli'}).sort('sent_at',-1).limit(1)` 的 `channel_results.feishu.http_status == 200` 且 `error == null`
 
 ---
 
@@ -879,4 +949,4 @@ python fastinfo.py stats                             # MongoDB 状态 / 索引
 
 ---
 
-*Last updated: 2026-07-04(Day 5 完成 + P1-P3 原则落地)* · *Next update: Day 6 完工时*
+*Last updated: 2026-07-05(Day 11 — 失败源修复 + 同类替换:cls 改主页 JSON / huxiu 替换 leiphone / autohome disable / 顺手修 upsert_item_async _id bug,详见 docs/day11-deliverable.md)* · *Next update: Day 12(HF-1 53 处 print 改 logging)完工时*

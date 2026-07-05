@@ -13,6 +13,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 import smtplib
 import os
 from email.mime.text import MIMEText
@@ -22,6 +23,14 @@ from abc import ABC, abstractmethod
 from typing import Iterable
 
 import httpx
+
+# Day 10 fix:推送历史 GBK 死循环 — notifier 里所有 print 改 logging,
+# 而且 fallback 用 ASCII tag ([OK]/[FAIL]/[!]) 避开 Windows GBK 控制台炸 ✗/✓。
+# 这样:
+#  - 真实异常不被控制台编码掩盖(以前 _post_webhook try 块里 print 抛 UnicodeEncodeError,
+#    让 send_all 的 except 把整个渠道当成失败, push_history 看到的不是真实 httpx 错)
+#  - scheduler 子进程(默认 GBK stdout) 也不会因为 ✗ 自爆
+_log = logging.getLogger("fastinfo.notifier")
 
 
 class Notifier(ABC):
@@ -54,18 +63,18 @@ class EmailNotifier(Notifier):
 
     def send(
         self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
-    ):
+    ) -> dict:
         addr = user.get("email")
         if not addr:
-            print(f"  [email] 用户 {user.get('username')} 没邮箱,跳过")
-            return False
+            _log.info("[email] 用户 %s 没邮箱,跳过", user.get("username"))
+            return {"ok": False, "http_status": None, "error": "no recipient email"}
         smtp_host = os.environ.get("SMTP_HOST", "smtp.qq.com")
         smtp_port = int(os.environ.get("SMTP_PORT", "465"))
         smtp_user = os.environ.get("SMTP_USER", "")
         smtp_pass = os.environ.get("SMTP_PASS", "")
         if not smtp_user or not smtp_pass:
-            print("  [email] SMTP_USER / SMTP_PASS 未配置,跳过")
-            return False
+            _log.info("[email] SMTP_USER / SMTP_PASS 未配置,跳过")
+            return {"ok": False, "http_status": None, "error": "smtp not configured"}
         try:
             msg = MIMEMultipart()
             msg["From"] = formataddr(["fastInfo", smtp_user])
@@ -76,11 +85,12 @@ class EmailNotifier(Notifier):
             with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as s:
                 s.login(smtp_user, smtp_pass)
                 s.sendmail(smtp_user, [addr], msg.as_string())
-            print(f"  [email] → {addr} ✓")
-            return True
+            _log.info("[email] -> %s [OK]", addr)
+            return {"ok": True, "http_status": None, "error": None}
         except Exception as e:
-            print(f"  [email] ✗ {type(e).__name__}: {str(e)[:80]}")
-            return False
+            msg = f"{type(e).__name__}: {str(e)[:120]}"
+            _log.warning("[email] [FAIL] %s", msg)
+            return {"ok": False, "http_status": None, "error": msg}
 
 
 # ============================================================
@@ -91,10 +101,10 @@ class FeishuNotifier(Notifier):
 
     def send(
         self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
-    ):
+    ) -> dict:
         webhook = user.get("feishu_webhook")
         if not webhook:
-            return False
+            return {"ok": False, "http_status": None, "error": "no feishu_webhook"}
         if card and "card" in card:
             payload = {"msg_type": "interactive", "card": card["card"]}
         elif card:
@@ -120,10 +130,10 @@ class WechatWorkNotifier(Notifier):
 
     def send(
         self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
-    ):
+    ) -> dict:
         webhook = user.get("wechat_webhook")
         if not webhook:
-            return False
+            return {"ok": False, "http_status": None, "error": "no wechat_webhook"}
         body = body_md or content_html
         payload = {
             "msgtype": "markdown",
@@ -140,31 +150,40 @@ class WebhookNotifier(Notifier):
 
     def send(
         self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
-    ):
+    ) -> dict:
         url = user.get("webhook_url")
         if not url:
-            return False
+            return {"ok": False, "http_status": None, "error": "no webhook_url"}
+        # Day 7:优先 body_html(订阅服务端的真正 HTML),其次 content_html 兜底
         payload = {
             "subject": subject,
-            "content_html": content_html,
+            "content_html": body_html or content_html or "",
+            "content_md": body_md or "",
             "items": items,
             "username": user.get("username"),
         }
         return _post_webhook(url, payload, "webhook")
 
 
-def _post_webhook(url: str, payload: dict, tag: str) -> bool:
+def _post_webhook(url: str, payload: dict, tag: str) -> dict:
+    """Day 9:返回结构化结果 {ok, http_status, error} 给 push_history 用。
+
+    Day 10 fix:返回路径绝不抛异常,所有日志改 logging + ASCII tag。
+    之前 try 块里 print 含 ✗ → Windows GBK 控制台抛 UnicodeEncodeError
+    → 被 send_all 的 except 兜成「推送失败」,掩盖真实的 httpx 错。
+    """
     try:
         r = httpx.post(url, json=payload, timeout=10)
         ok = 200 <= r.status_code < 300
         if ok:
-            print(f"  [{tag}] {url[:60]}... ✓")
-        else:
-            print(f"  [{tag}] {url[:60]}... ✗ {r.status_code}")
-        return ok
+            _log.info("[%s] %s... [OK] status=%s", tag, url[:60], r.status_code)
+            return {"ok": True, "http_status": r.status_code, "error": None}
+        _log.warning("[%s] %s... [FAIL] status=%s", tag, url[:60], r.status_code)
+        return {"ok": False, "http_status": r.status_code, "error": f"HTTP {r.status_code}"}
     except Exception as e:
-        print(f"  [{tag}] ✗ {type(e).__name__}: {str(e)[:80]}")
-        return False
+        msg = f"{type(e).__name__}: {str(e)[:80]}"
+        _log.warning("[%s] [FAIL] %s", tag, msg)
+        return {"ok": False, "http_status": None, "error": msg}
 
 
 
@@ -197,27 +216,38 @@ def send_all(
     body_md: str | None = None,
     body_html: str | None = None,
     card: dict | None = None,
-) -> dict[str, bool]:
-    """并发往多个渠道推，返回每个渠道成功与否。
+) -> dict[str, dict]:
+    """Day 9 改造:返回每个渠道的结构化结果 {ok, http_status, error}。
 
-    body_md 用于通用 webhook / wechat(转 markdown)。
-    body_html 覆写底层 default 用于 email。
-    card 用于 feishu 通道interactive 模式(不传则 fallback content_html)。
+    旧版返回 dict[str, bool](True/False),新版本兼容调用方 —— 列出「成功」/「失败」
+    两套渠道数组,供 push_history 落库时使用。
     """
-    out: dict[str, bool] = {}
+    out: dict[str, dict] = {}
     for ch in channels:
         n = get(ch)
         if n is None:
-            out[ch] = False
+            out[ch] = {"ok": False, "http_status": None, "error": f"unknown channel {ch!r}"}
             continue
         try:
-            out[ch] = n.send(
+            result = n.send(
                 user, subject, content_html, items,
                 body_md=body_md, body_html=body_html, card=card,
             )
+            # Day 10 fix: 各 notifier.send() 已统一返回 dict(Email/Feishu/Wechat/Webhook),
+            # 直接透传,别再 if result: 包一下 — 之前那段会把真实的 http_status 丢掉 (None)。
+            if isinstance(result, dict):
+                out[ch] = result
+            else:
+                # 兼容旧 Notifier.send() 返 bool 的实现
+                out[ch] = {
+                    "ok": bool(result),
+                    "http_status": None,
+                    "error": None if result else "send() returned False",
+                }
         except Exception as e:
-            print(f"  [notifier] {ch} err: {type(e).__name__}: {str(e)[:120]}")
-            out[ch] = False
+            _log.warning("[notifier] %s err: %s: %s", ch, type(e).__name__, str(e)[:120])
+            out[ch] = {"ok": False, "http_status": None,
+                       "error": f"{type(e).__name__}: {str(e)[:120]}"}
     return out
 
 

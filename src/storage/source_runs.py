@@ -166,13 +166,39 @@ def get_source_health(source_id: str, window_days: int = 1) -> dict:
     }
 
 
-def get_overall_health(window_days: int = 1) -> list[dict]:
-    """全平台健康度列表 + 当前 source_config 状态"""
+def get_overall_health(window_days: int = 1, recent_limit: int = 3) -> list[dict]:
+    """全平台健康度列表 + 当前 source_config 状态 + 最近 N 次 run 摘要
+
+    Args:
+        window_days: 成功率统计窗口(1d / 7d / 30d)
+        recent_limit: 每源附带最近几次 run(默认 3,前端 "最近 3 次状态" 展示)
+
+    Returns:
+        每条形如::
+            {
+                "source_id": ..., "display_name": ..., "kind": ..., "l1": ...,
+                "is_active": True, "last_success_at": ..., "last_fail_at": ...,
+                "consecutive_fails": 0, "auto_disable_threshold": 5,
+                "disabled_reason": None,
+                # 来源 get_source_health:
+                "total_runs": 12, "ok_runs": 11, "fail_runs": 1, "success_rate": 0.92,
+                "total_fetched": 88, "total_new": 42, "total_summarized": 42, "total_deduped": 30,
+                "avg_duration_ms": 1234, "last_run_at": ..., "last_status": "ok",
+                "last_error_code": None,
+                # Day 6 新增:
+                "recent_runs": [
+                    {"started_at", "ended_at", "duration_ms", "status",
+                     "fetched_count", "new_count", "error_code", "error_msg"},
+                    ...
+                ],
+            }
+    """
     db = get_db()
     sources = list(db["source_config"].find({}))
     out = []
     for s in sources:
         h = get_source_health(s["source_id"], window_days)
+        recent = get_recent_runs(source_id=s["source_id"], limit=recent_limit)
         out.append({
             "source_id": s["source_id"],
             "display_name": s.get("display_name"),
@@ -184,6 +210,20 @@ def get_overall_health(window_days: int = 1) -> list[dict]:
             "consecutive_fails": int(s.get("consecutive_fails", 0)),
             "auto_disable_threshold": int(s.get("auto_disable_threshold", 5)),
             "disabled_reason": s.get("disabled_reason"),
+            "recent_runs": [
+                {
+                    "run_id": r.get("run_id"),
+                    "started_at": r.get("started_at"),
+                    "ended_at": r.get("ended_at"),
+                    "duration_ms": int(r.get("duration_ms", 0)),
+                    "status": r.get("status"),
+                    "fetched_count": int(r.get("fetched_count", 0)),
+                    "new_count": int(r.get("new_count", 0)),
+                    "error_code": r.get("error_code"),
+                    "error_msg": (r.get("error_msg") or "")[:120],
+                }
+                for r in recent
+            ],
             **h,
         })
     return out

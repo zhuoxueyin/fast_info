@@ -57,8 +57,33 @@ export async function getTopic(tid: string) {
   return authFetch(`/api/topics/now/${tid}`)
 }
 
-export async function convertTopic(tid: string) {
-  return authFetch(`/api/topics/now/${tid}/convert`, { method: 'POST' })
+export async function listTopics(activeOnly = true) {
+  const qs = activeOnly ? '?active_only=true' : '?active_only=false'
+  return authFetch(`/api/topics/list${qs}`) as Promise<{ items: any[]; total: number }>
+}
+
+/**
+ * 转订阅(Day 9:支持短期 / 长期)
+ * @param tid 临时话题 ID
+ * @param opts.duration_days 短期跟踪天数(默认 7)
+ * @param opts.track_mode 'short' / 'long'(默认 short)
+ */
+export async function convertTopic(
+  tid: string,
+  opts: { duration_days?: number; track_mode?: 'short' | 'long' } = {},
+) {
+  const qs = new URLSearchParams()
+  if (opts.duration_days != null) qs.set('duration_days', String(opts.duration_days))
+  if (opts.track_mode) qs.set('track_mode', opts.track_mode)
+  const url = `/api/topics/now/${tid}/convert${qs.toString() ? '?' + qs : ''}`
+  return authFetch(url, { method: 'POST' }) as Promise<{
+    converted: boolean
+    subscription_id: string
+    tid: string
+    track_mode?: 'short' | 'long'
+    track_entity?: string | null
+    idempotent?: boolean
+  }>
 }
 
 // ============================================================
@@ -86,6 +111,18 @@ export type SourceConfig = {
   updated_at?: string
 }
 
+export type RecentRun = {
+  run_id: string
+  started_at: string
+  ended_at: string
+  duration_ms: number
+  status: 'ok' | 'partial' | 'fail' | 'disabled' | string
+  fetched_count: number
+  new_count: number
+  error_code: string | null
+  error_msg: string | null
+}
+
 export type SourceHealth = {
   source_id: string
   window_days: number
@@ -101,6 +138,7 @@ export type SourceHealth = {
   last_run_at: string | null
   last_status: string | null
   last_error_code: string | null
+  recent_runs?: RecentRun[]
 }
 
 export type SourceHealthSummary = SourceConfig & SourceHealth
@@ -124,6 +162,17 @@ export async function toggleSource(source_id: string) {
   return authFetch(`/api/admin/sources/${source_id}/toggle`, { method: 'POST' })
 }
 
+/**
+ * 批量启停数据源(Day 6 新增)
+ * @returns {ok, updated, skipped[], is_active}
+ */
+export async function batchToggleSources(source_ids: string[], is_active: boolean) {
+  return authFetch('/api/admin/sources/batch-toggle', {
+    method: 'POST',
+    body: { source_ids, is_active },
+  }) as Promise<{ ok: boolean; updated: number; skipped: string[]; is_active: boolean }>
+}
+
 export async function testSource(source_id: string, limit = 5) {
   return authFetch(`/api/admin/sources/${source_id}/test?limit=${limit}`, { method: 'POST' })
 }
@@ -136,4 +185,82 @@ export async function getHealthSummary(window_days = 1) {
     active_sources: number
     disabled_sources: number
   }>
+}
+
+// ===== Day 10.5 · 调度策略 API =====
+
+export type ScheduleRow = {
+  source_id: string
+  display_name: string
+  kind: string
+  l1: string
+  is_active: boolean
+  interval_seconds: number
+  interval_label: string
+  last_run_at: string | null
+  next_run_at: string | null
+  due_in_seconds: number
+  status: string
+}
+
+export async function getScheduleOverview() {
+  return authFetch('/api/admin/sources/schedule/overview') as Promise<{
+    items: ScheduleRow[]
+    total_sources: number
+    active_scheduled: number
+    manual_only: number
+    due_now: number
+  }>
+}
+
+export async function updateSchedule(source_id: string, cron_interval_seconds: number) {
+  return authFetch(`/api/admin/sources/${source_id}/schedule`, {
+    method: 'POST',
+    body: { cron_interval_seconds },
+  }) as Promise<{ ok: boolean; source_id: string; cron_interval_seconds: number; label: string }>
+}
+
+export async function batchUpdateSchedule(
+  source_ids: string[],
+  cron_interval_seconds: number
+) {
+  return authFetch('/api/admin/sources/schedule/batch', {
+    method: 'POST',
+    body: { source_ids, cron_interval_seconds },
+  }) as Promise<{ ok: boolean; updated: number; skipped: string[]; cron_interval_seconds: number }>
+}
+
+export async function runSourceNow(source_id: string, limit = 8) {
+  return authFetch(`/api/admin/sources/${source_id}/run-now?limit=${limit}`, { method: 'POST' }) as Promise<{
+    run_id: string
+    status: string
+    fetched: number
+    summarized: number
+    failed: number
+    sources_ran: number
+  }>
+}
+
+// ============================================================
+// Day 9: 推送历史
+// ============================================================
+
+import type { PushHistoryListResponse, PushHistoryStats, PushHistoryRecord } from '@/types/api'
+
+export async function listPushHistory(opts: {
+  limit?: number
+  trigger?: string
+} = {}) {
+  const qs = new URLSearchParams()
+  if (opts.limit) qs.set('limit', String(opts.limit))
+  if (opts.trigger) qs.set('trigger', opts.trigger)
+  return authFetch(`/api/me/push-history${qs.toString() ? '?' + qs : ''}`) as Promise<PushHistoryListResponse>
+}
+
+export async function getPushHistory(id: string) {
+  return authFetch(`/api/me/push-history/${id}`) as Promise<PushHistoryRecord>
+}
+
+export async function getPushHistoryStats() {
+  return authFetch('/api/me/push-history-stats') as Promise<PushHistoryStats>
 }

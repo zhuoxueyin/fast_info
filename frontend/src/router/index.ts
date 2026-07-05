@@ -13,11 +13,16 @@ const routes: RouteRecordRaw[] = [
   { path: '/me/settings', component: () => import('@/pages/SettingsPage.vue'), name: 'settings', meta: { auth: true } },
   { path: '/subs/new', component: () => import('@/pages/NewSubPage.vue'), name: 'sub-new', meta: { auth: true } },
   { path: '/subs/edit/:id', component: () => import('@/pages/NewSubPage.vue'), name: 'sub-edit', meta: { auth: true }, props: true },
+  // Day 9: 推送历史
+  { path: '/me/push-history', component: () => import('@/pages/PushHistoryPage.vue'), name: 'push-history', meta: { auth: true } },
   // 兼容旧路由重定向
   { path: '/settings', redirect: '/me/settings' },
   { path: '/topic/:tid', component: () => import('@/pages/TopicDetail.vue'), name: 'topic-detail', props: true },
+  { path: '/topics', component: () => import('@/pages/TopicsPage.vue'), name: 'topics', meta: { auth: true } },
+  { path: '/m/topics', component: () => import('@/pages/m/MobileTopicsPage.vue'), name: 'mobile-topics', meta: { auth: true } },
   { path: '/m/topic/:tid', component: () => import('@/pages/m/MobileTopicDetail.vue'), name: 'mobile-topic-detail', props: true },
   { path: '/admin', component: () => import('@/pages/admin/AdminHome.vue'), name: 'admin', meta: { auth: true, admin: true } },
+  { path: '/admin/monitoring', component: () => import('@/pages/admin/MonitoringPage.vue'), name: 'admin-monitoring', meta: { auth: true, admin: true } },
   { path: '/admin/tasks', component: () => import('@/pages/admin/TasksPage.vue'), name: 'admin-tasks', meta: { auth: true, admin: true } },
   { path: '/admin/sources', component: () => import('@/pages/admin/SourcesPage.vue'), name: 'admin-sources', meta: { auth: true, admin: true } },
   { path: '/admin/banner', component: () => import('@/pages/admin/BannerConfigPage.vue'), name: 'admin-banner', meta: { auth: true, admin: true } },

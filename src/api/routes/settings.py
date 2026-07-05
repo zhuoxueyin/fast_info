@@ -44,11 +44,40 @@ CHANNEL_FIELDS = {
     "webhook":   ["webhook_url"],
 }
 
+CHANNEL_LABEL = {
+    "inbox":  "站内 Inbox",
+    "email":  "邮件 SMTP",
+    "feishu": "飞书群机器人",
+    "wechat": "企业微信",
+    "webhook": "Webhook",
+}
+
+
+def _available_channels(user: dict) -> set[str]:
+    """根据用户 settings 实际配置,返回当前可用的推送渠道。
+
+    一致性原则(Day 7):settings 没配齐的渠道,在前端就不该出现
+    (NewSubPage / SettingsPage / MePage 都以此为唯一来源)。
+    """
+    out = {"inbox"}  # 站内永远可用
+    if user.get("feishu_webhook"):
+        out.add("feishu")
+    if user.get("wechat_webhook"):
+        out.add("wechat")
+    if user.get("webhook_url"):
+        out.add("webhook")
+    # email 至少要有 收件邮箱 + SMTP 用户(授权码可后填,因为存的是加密 hash,前端未必能展示)
+    if user.get("email") and user.get("smtp_user"):
+        out.add("email")
+    return out
+
 
 def _to_view(user: dict) -> dict:
     """读用户 settings 视图(密码脱敏)。入参是 deps 已经填好的 user dict。"""
     return {
         "email":                     user.get("email", ""),
+        "nickname":                  user.get("nickname", "") or "",
+        "avatar_url":                user.get("avatar_url", "") or "",
         "smtp_host":                 user.get("smtp_host", "smtp.qq.com"),
         "smtp_port":                 user.get("smtp_port", 465),
         "smtp_user":                 user.get("smtp_user", ""),
@@ -62,6 +91,8 @@ def _to_view(user: dict) -> dict:
 
 class SettingsUpdate(BaseModel):
     email:                Optional[str] = None
+    nickname:             Optional[str] = None       # Day 7:昵称
+    avatar_url:           Optional[str] = None       # Day 7:头像 URL
     smtp_host:            Optional[str] = None
     smtp_port:            Optional[int] = None
     smtp_user:            Optional[str] = None
@@ -84,6 +115,11 @@ async def update_my_settings(body: SettingsUpdate, user: dict = Depends(require_
     update: dict = {}
     if body.email is not None:
         update["email"] = body.email
+    if body.nickname is not None:
+        # 空字符串 = 显式清空昵称(回退显示 username)
+        update["nickname"] = body.nickname.strip() or ""
+    if body.avatar_url is not None:
+        update["avatar_url"] = body.avatar_url.strip()
     if body.smtp_host is not None:
         update["smtp_host"] = body.smtp_host
     if body.smtp_port is not None:
@@ -123,21 +159,24 @@ async def test_my_notifier(body: dict, user: dict = Depends(require_user)):
 
 
 @router.get("/notifier/channels")
-async def list_channels():
-    """列出可用渠道 + 各需要哪些字段"""
+async def list_channels(user: dict = Depends(require_user)):
+    """列出渠道 + 标记 available(根据当前用户的 settings 实际配置)。
+
+    前端 NewSubPage / SettingsPage / MePage 全部以此作为 single source of truth:
+    未配置的渠道压根不渲染,杜绝"勾了无声失败"的体验漏洞。
+    """
+    available = _available_channels(user)
+    defaults = user.get("default_channels") or ["inbox"]
     return {
         "channels": [
             {
                 "name": name,
-                "label": {
-                    "inbox": "站内 Inbox",
-                    "email": "邮件 SMTP",
-                    "feishu": "飞书群机器人",
-                    "wechat": "企业微信",
-                    "webhook": "Webhook",
-                }.get(name, name),
+                "label": CHANNEL_LABEL.get(name, name),
                 "required_fields": fields,
+                "available": name in available,
             }
             for name, fields in CHANNEL_FIELDS.items()
-        ]
+        ],
+        "available": sorted(available),                                # 给前端快速遍历
+        "default_channels": defaults if defaults else ["inbox"],      # 给 NewSubPage 初始化用
     }

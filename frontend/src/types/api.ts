@@ -33,6 +33,39 @@ export interface Subscription {
   last_run_at?: string
   is_active: boolean
   max_items: number
+  // Day 9:短期跟踪字段
+  track_mode?: 'long' | 'short' | null
+  expires_at?: string | null
+  duration_days?: number | null
+  track_entity?: string | null
+}
+
+export interface Topic {
+  tid: string
+  user_id?: string
+  nl_query: string
+  title?: string
+  parsed: {
+    title?: string
+    keywords?: string[]
+    categories_l1?: string[]
+    categories_l2?: string[]
+    sources?: string[]
+  }
+  item_count: number
+  created_at: string
+  expires_at: string
+  converted_to_sub_id?: string | null
+}
+
+export interface TopicListItem {
+  tid: string
+  nl_query: string
+  title: string
+  item_count: number
+  created_at: string
+  expires_at: string
+  converted_to_sub_id?: string | null
 }
 
 export interface InboxItem {
@@ -86,6 +119,8 @@ export interface User {
   role?: 'user' | 'admin'
   plan?: string
   email?: string
+  nickname?: string | null         // Day 7:用户昵称,空 → 显示 username
+  avatar_url?: string | null       // Day 7:头像 URL,空 → 显示首字母
   feishu_webhook?: string
   wechat_webhook?: string
   webhook_url?: string
@@ -116,4 +151,46 @@ export interface TodayResponse {
 export interface HotResponse {
   total: number
   items: Item[]
+}
+
+// Day 9:推送历史
+export interface PushChannelResult {
+  ok: boolean
+  http_status?: number | null
+  error?: string | null
+}
+
+export interface PushHistoryItem {
+  item_id: string
+  title: string
+  url?: string
+  source?: string
+}
+
+export interface PushHistoryRecord {
+  id: string
+  user_id: string
+  subscription_id?: string | null
+  subscription_title: string
+  trigger: 'manual' | 'schedule' | 'test' | 'cli' | 'unknown' | string
+  operator: string
+  channels_ok: string[]
+  channels_fail: string[]
+  channel_results: Record<string, PushChannelResult>
+  items: PushHistoryItem[]
+  item_count: number
+  sent_at?: string | null
+  duration_ms: number
+  error?: string | null
+}
+
+export interface PushHistoryListResponse {
+  total: number
+  items: PushHistoryRecord[]
+}
+
+export interface PushHistoryStats {
+  total: number
+  by_trigger: Record<string, number>
+  last_24h: number
 }

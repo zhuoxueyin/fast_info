@@ -20,7 +20,8 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 
 const tabs = [
-  { to: '/admin', label: '汇总' },
+  { to: '/admin', label: '总览' },
+  { to: '/admin/monitoring', label: '实时监控' },
   { to: '/admin/tasks', label: '任务' },
   { to: '/admin/sources', label: '数据源' },
   { to: '/admin/banner', label: 'Banner 配置' },

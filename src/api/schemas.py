@@ -28,6 +28,8 @@ class UserView(BaseModel):
     email: Optional[str] = None
     plan: str = "free"
     role: str = "user"
+    nickname: Optional[str] = None       # Day 7:用户自填的昵称(展示用,fallback → username)
+    avatar_url: Optional[str] = None     # Day 7:用户头像 URL(没配 → 首字母兜底)
     feishu_webhook: Optional[str] = None
     wechat_webhook: Optional[str] = None
     webhook_url: Optional[str] = None
@@ -35,6 +37,8 @@ class UserView(BaseModel):
 
 class UpdateUserRequest(BaseModel):
     email: Optional[str] = None
+    nickname: Optional[str] = None      # Day 7:昵称,空字符串 = 不改
+    avatar_url: Optional[str] = None    # Day 7:头像 URL,空字符串 = 不改
     feishu_webhook: Optional[str] = ""
     wechat_webhook: Optional[str] = ""
     webhook_url: Optional[str] = ""
@@ -84,6 +88,9 @@ class HotResponse(BaseModel):
     threshold: float
     total: int
     items: List[ItemView]
+    # Day 10:mode=feed 时返回是否用了订阅偏好加权
+    personalized: bool = False
+    interest_keys: int = 0   # 命中的偏好数(kw + L1 + L2 总和)
 
 
 # ============================================================
@@ -100,7 +107,7 @@ class StatsResponse(BaseModel):
 # Subscriptions
 # ============================================================
 class SubscribeRequest(BaseModel):
-    """订阅创建请求(Day 4)"""
+    """订阅创建请求(Day 4 / Day 9 加短期跟踪)"""
     title: Optional[str] = None
     nl_query: str = Field(..., min_length=2, max_length=200)
     keywords: List[str] = []
@@ -109,8 +116,14 @@ class SubscribeRequest(BaseModel):
     categories_l2: List[str] = []   # 二级类目: ["互联网", "AI芯片"]
     cron_expr: str = "0 9 * * *"
     max_items: int = Field(10, ge=1, le=50)
-    channels: List[str] = ["inbox"]   # inbox/email/feishu/wechat/webhook
+    # Day 7:不传(None) = 后端从 user.default_channels 兜底;传 [] = 视同 None;
+    # 传 ['inbox','feishu'] = 后端再按 settings 实际可用过滤一次。
+    channels: Optional[List[str]] = None
     interval_min: int = 0               # 自定义间隔(分钟);0=用 cron
+    # Day 9:短期跟踪选项(临时话题转订阅默认走 short)
+    track_mode: Optional[str] = None    # None / 'long' / 'short'
+    duration_days: Optional[int] = None # 短期订阅天数,默认 7
+    track_entity: Optional[str] = None  # 事件/人物实体(可选,优先用 LLM 解析结果)
 
 
 class SubscriptionView(BaseModel):
@@ -129,6 +142,11 @@ class SubscriptionView(BaseModel):
     last_run_at: Optional[str] = None
     is_active: bool
     max_items: int = 10
+    # Day 9:短期跟踪字段
+    track_mode: Optional[str] = "long"     # 'long' / 'short'
+    expires_at: Optional[str] = None        # 短期订阅过期时间(ISO)
+    duration_days: Optional[int] = None     # 短期订阅天数(冗余便于前端展示)
+    track_entity: Optional[str] = None     # 事件/人物实体
 
 
 # ============================================================

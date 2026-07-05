@@ -38,7 +38,19 @@ const msg = useMessage()
 const subs = ref<Subscription[]>([])
 
 const cols: DataTableColumns<Subscription> = [
-  { title: '标题', key: 'title', width: 160 },
+  {
+    title: '标题', key: 'title', width: 180,
+    render: (row: Subscription) => h('div', { class: 'flex items-center gap-1' }, [
+      h('span', { class: 'line-clamp-1' }, row.title),
+      row.track_mode === 'short'
+        ? h(NTag, { size: 'tiny', type: 'warning', title: `剩 ${formatRemain(row.expires_at)}` },
+            () => `⏰ ${formatRemain(row.expires_at) || '短期'}`)
+        : null,
+      row.track_entity
+        ? h(NTag, { size: 'tiny', type: 'success' }, () => `📌 ${row.track_entity}`)
+        : null,
+    ]),
+  },
   { title: 'NL', key: 'nl_query', ellipsis: { tooltip: true }, width: 180 },
   {
     title: '关键词', key: 'keywords', width: 180,
@@ -82,6 +94,16 @@ const cols: DataTableColumns<Subscription> = [
     ]),
   },
 ]
+
+function formatRemain(iso?: string | null): string {
+  if (!iso) return ''
+  const diff = new Date(iso).getTime() - Date.now()
+  if (diff <= 0) return '已过期'
+  const days = Math.floor(diff / 86400000)
+  if (days > 0) return `剩 ${days} 天`
+  const hours = Math.floor(diff / 3600000)
+  return `剩 ${hours}h`
+}
 
 function chLabel(c: string): string {
   return { inbox: '站内', email: '邮件', feishu: '飞书', wechat: '企微', webhook: 'Webhook' }[c] || c

@@ -17,12 +17,19 @@ fastInfo · 订阅调度守护进程 (Day 4)
 from __future__ import annotations
 import argparse
 import asyncio
+import io
 import os
 import sys
 import time
 import traceback
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# Day 10 fix:Windows 默认 GBK stdout,任何 print 含 ✗/✓ 必炸。
+# 强制切到 UTF-8 防止 scheduler 子进程死循环(同 api_server.py 同样模式)。
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -42,30 +49,62 @@ def log(msg: str, log_path: Path):
         f.write(line + "\n")
 
 
+def _parse_iso_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _due_at(sub: dict) -> datetime | None:
+    """推导该订阅应触发的时间点。
+
+    优先使用数据库里持久化的 `next_run_at`。
+    老数据缺字段时,再退化到 `last_run_at/created_at + cron|interval` 推导。
+    """
+    next_dt = _parse_iso_dt(sub.get("next_run_at"))
+    if next_dt is not None:
+        return next_dt
+    base_dt = _parse_iso_dt(sub.get("last_run_at")) or _parse_iso_dt(sub.get("created_at"))
+    if base_dt is None:
+        return None
+    try:
+        from subscription import compute_next_run_at
+        return compute_next_run_at(sub, base_dt)
+    except Exception:
+        return None
+
+
 def should_run_now(sub: dict, now: datetime) -> bool:
     """判断一个 sub 当前是否应该被触发"""
     if not sub.get("is_active", True):
         return False
-    # 自定义间隔(分钟)
-    interval_min = int(sub.get("interval_min", 0) or 0)
-    last_run = sub.get("last_run_at")
-    if interval_min > 0:
-        if not last_run:
-            return True
+    # Day 9:短期订阅 expires_at 过期 → 自动停(写库一次性)
+    expires_at = sub.get("expires_at")
+    if expires_at:
         try:
-            last_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-            return now - last_dt >= timedelta(minutes=interval_min)
+            exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if now >= exp_dt:
+                # 过期了 → 同步标记 is_active=False,scheduler 下次 tick 跳过
+                try:
+                    from storage.mongo_writer import get_sync_client, DEFAULT_DB
+                    from bson import ObjectId
+                    get_sync_client()[DEFAULT_DB]["subscriptions"].update_one(
+                        {"_id": ObjectId(str(sub["_id"]))},
+                        {"$set": {"is_active": False, "expired_at": now.isoformat()}},
+                    )
+                    print(f"  ⏰ [{sub.get('title','?')[:20]}] 短期订阅已过期,自动停")
+                except Exception:
+                    pass
+                return False
         except Exception:
-            return True
-    # cron 模式
-    if not last_run:
-        return True  # 从没跑过 → 跑一次
-    try:
-        last_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-    except Exception:
+            pass
+    due_at = _due_at(sub)
+    if due_at is None:
         return False
-    # 简单判断:last_run 距 now 超过 30 分钟才再跑(避免 cron 解析复杂度)
-    return now - last_dt >= timedelta(minutes=30)
+    return now >= due_at
 
 
 async def tick():
@@ -84,7 +123,8 @@ async def tick():
             skipped += 1
             continue
         try:
-            r = await run_subscription(sub)
+            # Day 9:scheduler 触发 = trigger='schedule',operator='auto'
+            r = await run_subscription(sub, trigger="schedule", operator="auto")
             triggered += 1
             sid = str(sub["_id"])
             update_subscription_after_run(sid, success=True)

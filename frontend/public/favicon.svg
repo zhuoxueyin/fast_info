@@ -1,4 +1,14 @@
-<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="32" height="32" fill="#0A0B0D"/>
-<path d="M26.6677 23.7149H8.38057V20.6496H5.33301V8.38159H26.6677V23.7149ZM8.38057 20.6496H23.6201V11.4482H8.38057V20.6496ZM16.0011 16.0021L13.8461 18.1705L11.6913 16.0021L13.8461 13.8337L16.0011 16.0021ZM22.0963 16.0008L19.9414 18.1691L17.7865 16.0008L19.9414 13.8324L22.0963 16.0008Z" fill="#32F08C"/>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="favicon-bg" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+<stop stop-color="#20C997"/>
+<stop offset="1" stop-color="#17B47F"/>
+</linearGradient>
+<linearGradient id="favicon-bolt" x1="25" y1="12" x2="43" y2="47" gradientUnits="userSpaceOnUse">
+<stop stop-color="#FFB15B"/>
+<stop offset="1" stop-color="#FF5D5D"/>
+</linearGradient>
+</defs>
+<rect x="2" y="2" width="60" height="60" rx="16" fill="url(#favicon-bg)"/>
+<path d="M34.82 10.5L21.1 33.77H30.07L27.61 53.5L42.9 28.83H34.09L34.82 10.5Z" fill="url(#favicon-bolt)"/>
 </svg>

@@ -7,6 +7,7 @@ fastInfo · 管理员路由
 - 全部用户 / 全部订阅 / 全部推送(管理员视角)
 """
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List
 from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from pydantic import BaseModel
@@ -335,3 +336,98 @@ def admin_get_taxonomy(admin: dict = Depends(require_admin)):
     """返回 L1 / L2 分类树(给前端订阅页用)"""
     from crawler.sources import CATEGORY_L1, CATEGORY_L2
     return {"l1": CATEGORY_L1, "l2": CATEGORY_L2}
+
+
+# ============================================================
+# Day 5+ :实时依赖监控
+# ============================================================
+
+@router.get("/monitoring")
+def admin_monitoring(admin: dict = Depends(require_admin)):
+    """管理员:聚合所有依赖的实时状态(Mongo/Redis/Daemon/LLM/Sources/Tasks)。
+
+    给 MonitoringPage 用,前端可 5s 自动刷新。
+    """
+    from monitoring import collect_monitoring
+    return collect_monitoring()
+
+
+@router.post("/tasks/reap-stale")
+def admin_reap_stale(admin: dict = Depends(require_admin)):
+    """管理员:手动触发僵尸 task 回收(running > 30min → 标 failed)。"""
+    from storage.mongo_writer import reap_stale_task_runs
+    n = reap_stale_task_runs()
+    return {"reaped": n}
+
+
+@router.post("/source/{source_id}/enable")
+def admin_enable_source(
+    source_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """管理员:重启用某个 disabled 源(把 is_active=True,consecutive_fails=0)。"""
+    from datetime import datetime, timezone
+    from storage.source_config import get_source
+    from storage.mongo_writer import get_db
+    s = get_source(source_id)
+    if not s:
+        from fastapi import HTTPException, status
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"source_id={source_id} 不存在")
+    db = get_db()
+    db["source_config"].update_one(
+        {"source_id": source_id},
+        {"$set": {
+            "is_active": True,
+            "consecutive_fails": 0,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+    return {"source_id": source_id, "is_active": True}
+
+
+@router.post("/source/{source_id}/restart-daemon")
+def admin_restart_ingest(admin: dict = Depends(require_admin)):
+    """管理员:重启 ingest_daemon 进程(Windows)。
+
+    实际是 kill PID + 启动新进程(在 daemon exit 后 start.ps1 应该有兜底,
+    但这里给一个手动 emergency trigger)。
+    """
+    import json, subprocess
+    # admin.py 在 src/api/routes/,回到项目根要 parents[3]
+    root = Path(__file__).resolve().parents[3]
+    pid_file = root / "data" / "running.pids"
+    python_exe = root / ".venv" / "Scripts" / "python.exe"
+    cmd = [str(python_exe), "scripts/ingest_daemon.py", "--interval", "1800"]
+    if not python_exe.exists():
+        return {"restarted": False, "reason": f"venv python not found: {python_exe}"}
+    if pid_file.exists():
+        try:
+            data = json.loads(pid_file.read_text(encoding="utf-8"))
+            arr = data if isinstance(data, list) else [data]
+            for p in arr:
+                if p.get("name") == "ingest":
+                    pid = int(p.get("pid"))
+                    try:
+                        subprocess.run(
+                            ["powershell", "-NoProfile", "-Command",
+                             f"Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue"],
+                            capture_output=True, timeout=5,
+                        )
+                    except Exception:
+                        pass
+                    break
+        except Exception:
+            pass
+    # 启动新 daemon(后台)
+    try:
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+        subprocess.Popen(
+            cmd, cwd=str(root),
+            creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+            stdout=open(root / "data" / "ingest.log", "ab"),
+            stderr=open(root / "data" / "ingest.err.log", "ab"),
+        )
+        return {"restarted": True, "command": " ".join(cmd), "cwd": str(root)}
+    except Exception as e:
+        return {"restarted": False, "reason": f"{type(e).__name__}: {e}"}
