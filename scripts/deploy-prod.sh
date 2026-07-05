@@ -69,8 +69,8 @@ else
   git reset --hard origin/master
 fi
 
-# 清掉未跟踪文件，但保留 .env 和 docker/env.docker.local(里面有机密)
-git clean -fdx -e .env -e docker/env.docker.local
+# 清掉未跟踪文件，但保留 env 配置文件(里面有机密)
+git clean -fdx -e .env -e docker/env.docker.local -e docker/env.prod.local
 
 DEPLOYED_COMMIT=$(git rev-parse --short HEAD)
 log "   当前 commit:$DEPLOYED_COMMIT"
