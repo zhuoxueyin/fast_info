@@ -29,7 +29,17 @@ command -v docker &> /dev/null || { err "docker 未装,先跑 apt-get install -y
 docker compose version &> /dev/null || { err "docker compose v2 未装"; exit 1; }
 [ -f docker-compose.yml ] || { err "找不到 docker-compose.yml(当前目录:$PROJECT_ROOT)"; exit 1; }
 [ -f .env ] || { err ".env 不存在,先 cp .env.example .env 并填密钥"; exit 1; }
-[ -f docker/env.docker.local ] || { err "docker/env.docker.local 不存在,先 cp docker/env.docker.local.example docker/env.docker.local"; exit 1; }
+# 生产环境优先用 docker/env.prod.local(APP_ENV=prod, MONGO_DB=fastinfo_prod)
+# 如果没有,fallback 到 docker/env.docker.local(预发配置)并 WARN
+if [ -f docker/env.prod.local ]; then
+  log "   ✅ 使用生产专用配置 docker/env.prod.local"
+elif [ -f docker/env.docker.local ]; then
+  warn "!! 找不到 docker/env.prod.local,fallback 到 docker/env.docker.local"
+  warn "!! 强烈建议:cp docker/env.prod.local.example docker/env.prod.local 并填入生产专用值"
+  warn "!! 否则生产进程会拿到 APP_ENV=docker,和数据隔离设计冲突"
+else
+  err "docker/env.prod.local 和 docker/env.docker.local 都不存在,先 cp 其中一个对应模板"; exit 1
+fi
 grep -q "^MMX_API_KEY=.\+" .env || { err ".env 里 MMX_API_KEY 没填,服务起来 LLM 调用也会失败"; exit 1; }
 
 log "   ✅ 全部通过"
@@ -54,6 +64,10 @@ log "   当前 commit:$DEPLOYED_COMMIT"
 
 # === 2. build ===
 log "2/5 build 新镜像(5-15 分钟)"
+# 让 docker-compose 优先用 prod 专用 env_file
+# (在 fallback 到 env.docker.local 时已 WARN,这里只是补一刀防止误用)
+export FASTINFO_ENV_FILE="${FASTINFO_ENV_FILE:-docker/env.prod.local}"
+log "   FASTINFO_ENV_FILE=$FASTINFO_ENV_FILE"
 docker compose build
 log "   ✅ build 完成"
 

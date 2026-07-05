@@ -13,6 +13,10 @@ fastInfo · 集中环境变量加载器
 4. **不引入副作用**:
    - 不 print (避免污染 uvicorn 启动日志)
    - 不抛异常
+5. **APP_ENV 自动兜底**:
+   加载完 .env 后,如果 APP_ENV 仍没值,根据 MONGO_URL 启发式猜一个,
+   避免任何代码分支看到 APP_ENV=<unset>。
+   需要"环境身份"具体函数见 env_identity.py。
 
 调用方式 (在所有 entrypoint 脚本顶部):
     from _env import load_env
@@ -25,6 +29,7 @@ entrypoint 列表:
     fastinfo.py (CLI 入口)
 """
 from __future__ import annotations
+import os
 from pathlib import Path
 from typing import Iterable
 
@@ -51,6 +56,9 @@ def load_env(verbose: bool = False) -> Path | None:
             print("[_env] python-dotenv not installed, skip .env loading")
         return None
 
+    # 标记:只要 APP_ENV 有值,无论 shell 来还是 .env 来,都是"显式声明"
+    pre_existing = os.environ.get("APP_ENV")
+
     for env_path in _candidate_paths():
         if env_path.exists() and env_path.is_file():
             # override=False: shell 已 export 的 env 优先
@@ -58,11 +66,51 @@ def load_env(verbose: bool = False) -> Path | None:
             load_dotenv(env_path, override=False, encoding="utf-8")
             if verbose:
                 print(f"[_env] loaded {env_path}")
+            # 标记 declared(只要 APP_ENV 已被设置)
+            if os.environ.get("APP_ENV"):
+                os.environ["_FASTINFO_APP_ENV_DECLARED"] = "1"
+            _fallback_app_env()  # 加载完再兜底(只在 APP_ENV 还没值时才生效)
             return env_path
 
     if verbose:
         print("[_env] no .env found in candidate paths")
+    # 即使没 .env 文件,shell 已 export 也算 declared
+    if pre_existing:
+        os.environ["_FASTINFO_APP_ENV_DECLARED"] = "1"
+    _fallback_app_env()  # 即使没 .env,也兜底一次
     return None
+
+
+def _fallback_app_env() -> None:
+    """APP_ENV 兜底:加载完 .env 后,如果还没声明,调 env_identity.detect_env_pure() 启发式推断。
+
+    ⚠️ 显式 export APP_ENV=... 永远优先(shell env 在 load_dotenv 前就有)。
+       加载完 .env 后,如果 APP_ENV 已被设置(无论是 shell 还是 .env),
+       都标记 _FASTINFO_APP_ENV_DECLARED=1,供业务代码判断"我是不是兜底来的"。
+
+    ⚠️ ECS 部署**强烈建议**显式声明 APP_ENV=prod —— 启发式只能识别
+    最常见的"阿里云 ECS + systemd 容器"组合,自定义镜像/裸 systemd 进程
+    会落到 docker / dev 兜底。
+
+    启发式具体逻辑在 env_identity.detect_env_pure()(单一真实源,避免两边逻辑漂移)。
+    """
+    if os.environ.get("APP_ENV"):
+        # 已经被显式设置(shell 或 .env),标记一下
+        os.environ["_FASTINFO_APP_ENV_DECLARED"] = "1"
+        return
+
+    # 调 env_identity 的纯启发式(避免逻辑两套)
+    from env_identity import detect_env_pure
+    os.environ["APP_ENV"] = detect_env_pure()
+
+
+def is_app_env_declared() -> bool:
+    """APP_ENV 是否显式声明(不是 _fallback_app_env 兜底产生的)。
+
+    业务代码应该用这个判断:如果 APP_ENV 是兜底来的,生产环境必须显式声明,
+    否则应该打 WARN 日志提示。
+    """
+    return bool(os.environ.get("_FASTINFO_APP_ENV_DECLARED", "").lower() in ("1", "true", "yes"))
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ data/
 
 # Docker 差异覆盖(可能误填真实 key)
 docker/env.docker.local
+docker/env.prod.local
 
 # 日志
 logs/
