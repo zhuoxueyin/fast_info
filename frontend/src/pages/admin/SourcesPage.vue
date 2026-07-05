@@ -240,6 +240,7 @@ import {
   NAlert, NButton, NCard, NCheckbox, NDataTable,
   NForm, NFormItem, NInput, NInputNumber, NModal,
   NSelect, NSwitch, NTag, useMessage,
+  type DataTableColumns,
 } from 'naive-ui'
 import {
   listSources, getHealthSummary, updateSource,
@@ -590,8 +591,8 @@ const tableData = computed(() => {
   return sources.value.filter(s => failingIds.has(s.source_id))
 })
 
-const columns = [
-  { type: 'selection' as const, width: 36 },
+const columns: DataTableColumns<SourceConfig> = [
+  { type: 'selection', width: 36 },
   {
     title: '开关',
     key: 'toggle',
