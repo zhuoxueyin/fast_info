@@ -96,6 +96,17 @@ async def list_my_subscriptions(user: dict = Depends(require_user)):
     )
 
 
+@router.get("/subs/{sub_id}", response_model=SubscriptionView)
+async def get_my_subscription(sub_id: str, user: dict = Depends(require_user)):
+    """编辑页用:读单条订阅"""
+    sub = get_subscription(sub_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="订阅不存在")
+    if sub.get("user_id") != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="非本人订阅,无权操作")
+    return _to_view(sub)
+
+
 @router.post("/subs/{sub_id}/run", response_model=RunSubscriptionResponse)
 async def run_my_subscription(sub_id: str, user: dict = Depends(require_user)):
     sub = get_subscription(sub_id)

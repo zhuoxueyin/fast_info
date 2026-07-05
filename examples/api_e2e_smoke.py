@@ -24,8 +24,6 @@ fastInfo · API 端到端 smoke 测试
 """
 import argparse
 import os
-import random
-import string
 import sys
 from pathlib import Path
 
@@ -115,9 +113,9 @@ def main():
         step("/api/items 批量", False, "no items")
 
     # ---- 3. 鉴权流(注册 → 登录 → me)----
+    # 固定用户名,跑完在 finally 里清理,避免积累 smoke_* 孤儿账号
     print("\n[3] 鉴权流 (register → login → me)")
-    suffix = "".join(random.choices(string.ascii_lowercase, k=6))
-    username = f"smoke_{suffix}"
+    username = "smoke_e2e"
 
     r = client.post("/api/auth/register", json={"username": username, "password": "sm0ke-pass"})
     step(f"register({username})", r.status_code in (200, 201, 400), f"status={r.status_code}")
@@ -177,5 +175,26 @@ def main():
         sys.exit(1)
 
 
+def _cleanup_smoke_user():
+    """跑完清理 smoke_e2e 用户及其订阅/推送记录,避免积累垃圾账号"""
+    try:
+        from storage.mongo_writer import get_db
+        db = get_db()
+        u = db["users"].find_one({"username": "smoke_e2e"})
+        if not u:
+            return
+        uid = u["_id"]
+        uid_variants = [str(uid), uid]
+        db["subscriptions_delivered"].delete_many({"user_id": {"$in": uid_variants}})
+        db["subscriptions"].delete_many({"user_id": {"$in": uid_variants}})
+        db["users"].delete_one({"_id": uid})
+        print("\n[cleanup] 已清理 smoke_e2e 测试用户")
+    except Exception as e:
+        print(f"\n[cleanup] 清理 smoke_e2e 失败(不影响结果): {e}")
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        _cleanup_smoke_user()

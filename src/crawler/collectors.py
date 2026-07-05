@@ -178,9 +178,10 @@ async def fetch_xhs_note(
 # Per-source run wrapper + 统一入口
 # ============================================================
 
-async def _run_one_source(source_id: str, fetcher, *, enabled: bool) -> list[Item]:
+async def _run_one_source(source_id: str, fetcher, *, enabled: bool, task_run_id: Optional[str] = None) -> list[Item]:
     """
     跑一个源,失败/成功记 source_runs,自动禁用按 source_config.auto_disable_threshold。
+    task_run_id: 关联的 task_runs.run_id(用于调用树跟踪)
     """
     started = datetime.now(timezone.utc).isoformat()
     t0 = time.monotonic()
@@ -195,6 +196,7 @@ async def _run_one_source(source_id: str, fetcher, *, enabled: bool) -> list[Ite
             source_id=source_id, status="disabled",
             started_at=started, duration_ms=duration,
             error_code="DISABLED", error_msg="is_active=False",
+            task_run_id=task_run_id,
         )
         return []
 
@@ -218,14 +220,16 @@ async def _run_one_source(source_id: str, fetcher, *, enabled: bool) -> list[Ite
         started_at=started, duration_ms=duration,
         fetched_count=len(items),
         error_code=error_code, error_msg=error_msg,
+        task_run_id=task_run_id,
     )
     return items
 
 
-async def fetch_all(limit_per_source: int = 15, enabled_sources: Optional[set[str]] = None) -> list[Item]:
+async def fetch_all(limit_per_source: int = 15, enabled_sources: Optional[set[str]] = None, task_run_id: Optional[str] = None) -> list[Item]:
     """
     全源抓取。顺序跑(每源间隔独立 source_runs 记录)。
     30 min 一次,18 个源顺序跑大概 30-60s,可以接受。
+    task_run_id: 关联的 task_runs.run_id(用于调用树跟踪)
     """
     active = enabled_sources
     if active is None:
@@ -244,7 +248,7 @@ async def fetch_all(limit_per_source: int = 15, enabled_sources: Optional[set[st
             urls = get_huxiu_urls() if sid == "huxiu" else [url]
             async def _run():
                 return await fetch_rss_with_fallback(client, sid, name, urls, limit_per_source)
-            items = await _run_one_source(sid, _run, enabled=enabled)
+            items = await _run_one_source(sid, _run, enabled=enabled, task_run_id=task_run_id)
             all_items.extend(items)
 
         # === KOL ===
@@ -254,15 +258,15 @@ async def fetch_all(limit_per_source: int = 15, enabled_sources: Optional[set[st
             if kind == "weibo_user":
                 async def _run():
                     return await fetch_weibo_user(client, real_id, name, 5)
-                items = await _run_one_source(key, _run, enabled=enabled)
+                items = await _run_one_source(key, _run, enabled=enabled, task_run_id=task_run_id)
             elif kind == "x_user":
                 async def _run():
                     return await fetch_x_user_multi(client, real_id, name, 5)
-                items = await _run_one_source(key, _run, enabled=enabled)
+                items = await _run_one_source(key, _run, enabled=enabled, task_run_id=task_run_id)
             elif kind == "xhs_note":
                 async def _run():
                     return await fetch_xhs_note(client, real_id, name, 5)
-                items = await _run_one_source(key, _run, enabled=enabled)
+                items = await _run_one_source(key, _run, enabled=enabled, task_run_id=task_run_id)
             else:
                 continue
             all_items.extend(items)
