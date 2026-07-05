@@ -17,6 +17,7 @@ from storage.mongo_writer import (
     get_recent_task_runs,
     get_task_run,
     get_task_run_status,
+    reap_stale_task_runs,
     get_source_status_24h,
     count_items,
     DEFAULT_DB,
@@ -33,6 +34,10 @@ def list_task_runs(
     admin: dict = Depends(require_admin),
 ):
     """爬取任务时间线(最近 N 条)"""
+    # 每次列表自动回收僵尸 running(进程崩溃/被 kill 后残留的记录)
+    reaped = reap_stale_task_runs()
+    if reaped > 0:
+        print(f"[task_runs] reaped {reaped} stale running tasks", flush=True)
     return get_recent_task_runs(limit=limit)
 
 
@@ -47,6 +52,82 @@ def get_task_run_detail(
         from fastapi import HTTPException, status
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"run_id={run_id} 不存在")
     return doc
+
+
+@router.get("/tasks/runs/{run_id}/trace")
+def get_task_run_trace(
+    run_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """调用树跟踪:返回 task_run + 关联的所有 source_runs,用于构建执行全貌。
+
+    返回结构:
+        {
+            "task_run": { ... },          # 顶层任务
+            "source_runs": [ ... ],       # 每源执行明细(按时间排序)
+            "summary": {                  # 聚合摘要
+                "total_sources": int,
+                "ok_sources": int,
+                "fail_sources": int,
+                "disabled_sources": int,
+                "total_duration_ms": int,
+            }
+        }
+    """
+    from storage.source_runs import get_runs_by_task_run_id
+    task = get_task_run(run_id)
+    if not task:
+        from fastapi import HTTPException, status
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"run_id={run_id} 不存在")
+    source_runs = get_runs_by_task_run_id(run_id)
+
+    # 补全"未爬取"的源:全量注册源 - 实际跑了的源
+    ran_ids = {r.get("source_id") for r in source_runs}
+    all_sources: dict[str, str] = {}  # source_id -> display_name
+    try:
+        from crawler.sources import RSS_SOURCES, KOL_SOURCES
+        for sid, (name, _url) in RSS_SOURCES.items():
+            all_sources[sid] = name
+        for key, (name, _kind) in KOL_SOURCES.items():
+            all_sources[key] = name
+    except Exception:
+        pass
+
+    skipped = []
+    for sid, name in all_sources.items():
+        if sid not in ran_ids:
+            skipped.append({
+                "source_id": sid,
+                "status": "skip",
+                "display_name": name,
+                "fetched_count": 0,
+                "new_count": 0,
+                "summarized_count": 0,
+                "failed_count": 0,
+                "duration_ms": 0,
+                "error_code": "NOT_RAN",
+                "error_msg": "本次任务未爬取(源未启用或被跳过)",
+                "started_at": None,
+                "ended_at": None,
+            })
+
+    ok = sum(1 for r in source_runs if r.get("status") == "ok")
+    fail = sum(1 for r in source_runs if r.get("status") == "fail")
+    disabled = sum(1 for r in source_runs if r.get("status") == "disabled")
+    skip = len(skipped)
+    total_dur = sum(int(r.get("duration_ms", 0)) for r in source_runs)
+    return {
+        "task_run": task,
+        "source_runs": source_runs + skipped,
+        "summary": {
+            "total_sources": len(source_runs) + skip,
+            "ok_sources": ok,
+            "fail_sources": fail,
+            "disabled_sources": disabled,
+            "skip_sources": skip,
+            "total_duration_ms": total_dur,
+        },
+    }
 
 
 @router.get("/tasks/source-status", response_model=list[SourceStatus])

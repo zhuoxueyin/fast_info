@@ -1,12 +1,8 @@
 <template>
-  <div class="max-w-2xl">
+  <div>
     <div class="flex items-center gap-4 mb-6">
       <h1 class="text-2xl font-bold text-slate-900">🎨 Banner 配置</h1>
-      <nav class="flex gap-2 text-sm ml-auto">
-        <router-link to="/admin" class="px-3 py-1 rounded hover:bg-slate-100">汇总</router-link>
-        <router-link to="/admin/tasks" class="px-3 py-1 rounded hover:bg-slate-100">任务</router-link>
-        <router-link to="/admin/banner" class="px-3 py-1 rounded bg-emerald-50 text-emerald-700">Banner</router-link>
-      </nav>
+      <AdminTabs class="ml-auto" />
     </div>
 
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
@@ -14,11 +10,23 @@
         选择公域首页要展示的类目(从 items.category 取),上限 {{ MAX }} 个。
       </p>
 
+      <!-- 类目模糊搜索 -->
       <div class="mb-4">
-        <div class="text-xs text-slate-500 mb-2">可用类目(点击添加)</div>
+        <div class="text-xs text-slate-500 mb-2">可用类目(搜索后点击添加)</div>
+        <n-input
+          v-model:value="searchKeyword"
+          placeholder="输入关键字搜索类目…"
+          size="small"
+          clearable
+          class="!max-w-xs mb-2"
+        >
+          <template #prefix><span class="text-slate-400">🔍</span></template>
+        </n-input>
+
+        <!-- 默认展示3行,其余折叠 -->
         <div class="flex flex-wrap gap-2">
           <button
-            v-for="c in availableCategories"
+            v-for="c in visibleCategories"
             :key="c"
             class="text-sm px-3 py-1 rounded-full border border-slate-300 text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
             @click="add(c)"
@@ -26,6 +34,13 @@
             + {{ c }} <span class="text-xs text-slate-400">({{ catCount(c) }})</span>
           </button>
         </div>
+        <button
+          v-if="filteredCategories.length > collapsedLimit"
+          class="text-xs text-emerald-600 hover:underline mt-2"
+          @click="expanded = !expanded"
+        >
+          {{ expanded ? '收起' : `展开全部 (${filteredCategories.length} 个)` }}
+        </button>
       </div>
 
       <div class="mb-6">
@@ -75,9 +90,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { NInputNumber, NButton, NEmpty, useMessage } from 'naive-ui'
+import { NInputNumber, NButton, NInput, NEmpty, useMessage } from 'naive-ui'
 import { api } from '@/lib/api'
 import type { BannerConfig, Stats } from '@/types/api'
+import AdminTabs from '@/components/AdminTabs.vue'
 
 const MAX = 5
 const msg = useMessage()
@@ -85,6 +101,9 @@ const saving = ref(false)
 const selected = ref<string[]>([])
 const maxPerCategory = ref(3)
 const stats = ref<Stats | null>(null)
+const searchKeyword = ref('')
+const expanded = ref(false)
+const collapsedLimit = 9 // 默认3行(每行约3个)
 
 const PALETTE: Record<string, string> = {
   AI: 'linear-gradient(135deg, #0F172A 0%, #1E40AF 100%)',
@@ -100,6 +119,17 @@ const availableCategories = computed(() => {
   const used = new Set(selected.value)
   const all = stats.value?.by_category?.map(c => c._id).filter(Boolean) || []
   return all.filter(c => !used.has(c))
+})
+
+const filteredCategories = computed(() => {
+  const kw = searchKeyword.value.trim().toLowerCase()
+  if (!kw) return availableCategories.value
+  return availableCategories.value.filter(c => c.toLowerCase().includes(kw))
+})
+
+const visibleCategories = computed(() => {
+  if (expanded.value) return filteredCategories.value
+  return filteredCategories.value.slice(0, collapsedLimit)
 })
 
 function catCount(c: string): number {

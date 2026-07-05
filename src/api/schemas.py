@@ -173,7 +173,8 @@ class TaskRun(BaseModel):
     run_id: str
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
-    status: Optional[str] = None       # Day 5:running / done / failed
+    status: Optional[str] = None       # running / done / partial / failed / stale
+    status_reason: Optional[str] = None  # 状态归一化原因(如"僵尸回收"/"全失败判为failed")
     trigger: str
     operator: Optional[str] = None
     items_fetched: int = 0
@@ -182,6 +183,11 @@ class TaskRun(BaseModel):
     per_source: dict = {}
     llm_breakdown: dict = {}
     warning: Optional[str] = None      # Day 5:LLM 全失败时的原因
+    # Day 5+:从关联 source_runs 聚合的源级统计
+    source_stats: Optional[dict] = None  # {"ok":n, "fail":n, "partial":n, "disabled":n}
+
+    class Config:
+        extra = "allow"
 
 
 class LLMHealth(BaseModel):

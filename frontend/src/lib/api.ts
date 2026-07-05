@@ -37,6 +37,14 @@ export async function createSub(body: any) {
   return authFetch('/api/subs', { method: 'POST', body })
 }
 
+export async function getSub(id: string) {
+  return authFetch(`/api/subs/${id}`)
+}
+
+export async function patchSub(id: string, body: any) {
+  return authFetch(`/api/subs/${id}`, { method: 'PATCH', body })
+}
+
 // ============================================================
 // 话题
 // ============================================================

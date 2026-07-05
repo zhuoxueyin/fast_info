@@ -27,11 +27,13 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from storage.mongo_writer import get_sync_client, get_async_client, upsert_item_async
+from storage.mongo_writer import get_sync_client, get_async_client, upsert_item_async, DEFAULT_DB
 from llm.model_registry import build_default_registry
 
 
-DEFAULT_DB = "fastinfo"
+# 注意(原 P2 违规):早期版本这里硬编码了 DEFAULT_DB = "fastinfo",
+# 会跟 docker 里 MONGO_DB=fastinfo_docker 错位 → 订阅读不到 items。
+# 已改为跟 mongo_writer 共享同一份 DEFAULT_DB,任何环境(Docker / 本地 / ECS)自动跟随。
 
 
 # ============================================================
@@ -303,8 +305,18 @@ async def run_subscription(sub: dict) -> dict:
     categories_l2 = sub.get("categories_l2", [])
     channels = sub.get("channels", ["inbox"])
     max_items = int(sub.get("max_items", 10))
-    lookback_hours = int(sub.get("lookback_hours", 48))
     require_all_keywords = bool(sub.get("require_all_keywords", False))
+
+    # lookback 窗口: 订阅可自定义;否则按频率自动:
+    #   interval/realtime → 跟 interval_min 一致(最少 1h)
+    #   cron daily/weekly → 24h(只看今天的新内容,避免重复推昨天的)
+    interval_min = int(sub.get("interval_min", 0) or 0)
+    if "lookback_hours" in sub and sub["lookback_hours"]:
+        lookback_hours = int(sub["lookback_hours"])
+    elif interval_min > 0:
+        lookback_hours = max(1, interval_min // 60)
+    else:
+        lookback_hours = 24
 
     db = get_async_client()[DEFAULT_DB]
 
@@ -313,7 +325,8 @@ async def run_subscription(sub: dict) -> dict:
         channels = ["inbox"]
 
     # 1. 从 MongoDB 读最近 lookback_hours 小时的 items
-    since = (datetime.now(timezone.utc) - timedelta(hours=lookback_hours)).isoformat()
+    now_run = datetime.now(timezone.utc)
+    since = (now_run - timedelta(hours=lookback_hours)).isoformat()
     q: dict = {"fetched_at": {"$gte": since}}
     if "all" not in sources:
         q["source"] = {"$in": sources}
@@ -343,20 +356,34 @@ async def run_subscription(sub: dict) -> dict:
         if categories_l1 and item_l1 not in categories_l1:
             continue  # L1 不命中 → 硬跳过
 
-        # 排序权重
+        # 排序权重: L2 软加权 + 新鲜度(越新越高)
         boost = 0.0
         if categories_l2 and cat_raw in categories_l2:
             boost += 0.15
         if categories and any(c in cat_raw for c in categories):
             boost += 0.1
-
+        # 新鲜度: 距 now 的小时数，越小越新；转成 0~1 的衰减分
+        try:
+            fetched_at = datetime.fromisoformat(item.get("fetched_at", "").replace("Z", "+00:00"))
+            age_hours = max(0.0, (now_run - fetched_at).total_seconds() / 3600.0)
+        except Exception:
+            age_hours = float(lookback_hours)
+        # 24h 内 → 0.5~1.0, 48h 内 → 0~0.5; 保证新内容排在旧内容前面
+        freshness = max(0.0, 1.0 - age_hours / float(lookback_hours))
         item["_boost"] = boost
+        item["_freshness"] = freshness
+
         seen_ids.add(iid)
         candidates.append(item)
         if len(candidates) >= max_items * 3:
             break
 
-    candidates.sort(key=lambda x: (x.get("_boost", 0), x.get("relevance", 0)), reverse=True)
+    # 排序: 新鲜度优先 > L2 boost > relevance
+    # freshness 放第一位保证最新内容优先被推
+    candidates.sort(
+        key=lambda x: (x.get("_freshness", 0), x.get("_boost", 0), x.get("relevance", 0)),
+        reverse=True,
+    )
     candidates = candidates[:max_items]
 
     if not candidates:

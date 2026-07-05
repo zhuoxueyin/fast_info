@@ -162,13 +162,17 @@
       </section>
 
       <div class="flex gap-3 mt-6">
-        <n-button class="!flex-1" @click="step = 1">上一步</n-button>
-        <n-button type="primary" class="!flex-1" :loading="saving" @click="onSave">保存订阅</n-button>
+        <n-button class="!flex-1" @click="onCancel">
+          {{ isEdit ? '取消' : '上一步' }}
+        </n-button>
+        <n-button type="primary" class="!flex-1" :loading="saving" @click="onSave">
+          {{ isEdit ? '保存修改' : '保存订阅' }}
+        </n-button>
       </div>
     </div>
 
-    <!-- Step 3: 完成 -->
-    <div v-show="step === 3" class="text-center py-12 min-h-[320px]">
+    <!-- Step 3: 完成 (仅新建模式) -->
+    <div v-if="!isEdit" v-show="step === 3" class="text-center py-12 min-h-[320px]">
       <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl mx-auto mb-4">✓</div>
       <h2 class="text-xl font-bold text-slate-900 mb-2">订阅已创建</h2>
       <p class="text-slate-500 mb-8">系统会按你设置的规则自动推送相关内容。</p>
@@ -181,20 +185,80 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   NInput, NInputNumber, NButton, NSelect, NCheckbox, NCheckboxGroup, useMessage,
 } from 'naive-ui'
-import { parseSub, createSub } from '@/lib/api'
+import { parseSub, createSub, getSub, patchSub, api } from '@/lib/api'
 
+const route = useRoute()
 const router = useRouter()
 const msg = useMessage()
+
+// 路由参数 id 存在 → 编辑模式;否则 → 新建模式
+const subId = computed(() => (route.params.id as string) || '')
+const isEdit = computed(() => !!subId.value)
 
 const step = ref(1)
 const nl = ref('')
 const generating = ref(false)
 const saving = ref(false)
+
+// 用户在 Settings 里配置的"默认推送渠道",作为新建订阅 channels 的初值
+// 空数组/加载失败都兜底为 ['inbox']
+const defaultChannels = ref<string[]>(['inbox'])
+
+async function loadDefaultChannels(): Promise<string[]> {
+  try {
+    const me: any = await api('/settings')
+    const ch = Array.isArray(me?.channels) && me.channels.length ? me.channels : ['inbox']
+    defaultChannels.value = ch
+    return ch
+  } catch {
+    // 静默失败,保留兜底
+    return defaultChannels.value
+  }
+}
+
+// 编辑模式: 直接把订阅数据灌进表单,不走 parseSub 路径
+function applyExistingSub(sub: any) {
+  nl.value = sub.nl_query || ''
+  form.value.title = sub.title || ''
+  form.value.keywords = Array.isArray(sub.keywords) ? sub.keywords.map(String) : []
+  form.value.categories_l1 = Array.isArray(sub.categories_l1) ? sub.categories_l1.map(String) : []
+  form.value.categories_l2 = Array.isArray(sub.categories_l2) ? sub.categories_l2.map(String) : []
+  form.value.max_items = Number.isFinite(sub.max_items) ? Number(sub.max_items) : 10
+  form.value.channels = Array.isArray(sub.channels) && sub.channels.length
+    ? [...sub.channels]
+    : [...defaultChannels.value]
+  const freq = parseCronToFreq(sub.cron_expr)
+  form.value.freq_mode = freq.mode
+  form.value.hour = freq.hour
+  form.value.minute = freq.minute
+  form.value.weeklyDay = freq.weeklyDay
+  form.value.interval_min = sub.interval_min && Number(sub.interval_min) > 0
+    ? Number(sub.interval_min)
+    : freq.interval_min
+}
+
+onMounted(async () => {
+  await loadDefaultChannels()
+  if (isEdit.value) {
+    // 编辑模式: 跳过 Step 1,直接进 Step 2,并预填所有字段
+    try {
+      const sub: any = await getSub(subId.value)
+      applyExistingSub(sub)
+      step.value = 2
+    } catch (e: any) {
+      msg.error(e?.data?.detail || '加载订阅失败')
+      router.replace('/me/subs')
+    }
+  } else {
+    // 新建模式: 用默认渠道初始化表单
+    form.value.channels = [...defaultChannels.value]
+  }
+})
 
 const examples = [
   '每天 9 点推送 AI 大模型和机器人最新进展',
@@ -388,7 +452,7 @@ function applyParsed(parsed: any) {
   // channels 保留用户已在页面上选好的（来自 default_channels），不被 AI 解析覆盖
   next.channels = form.value.channels && form.value.channels.length
     ? [...form.value.channels]
-    : ['inbox']
+    : [...defaultChannels.value]
   form.value = next
 }
 
@@ -433,8 +497,15 @@ async function onSave() {
       cron_expr: buildCronExpr(),
       interval_min: buildIntervalMin(),
     }
-    await createSub(body)
-    step.value = 3
+    if (isEdit.value) {
+      // 编辑模式: PATCH 后直接回列表,不走 Step 3 成功页
+      await patchSub(subId.value, body)
+      msg.success('订阅已更新')
+      router.replace('/me/subs')
+    } else {
+      await createSub(body)
+      step.value = 3
+    }
   } catch (e: any) {
     msg.error(e?.data?.detail || '保存失败')
   } finally {
@@ -442,9 +513,22 @@ async function onSave() {
   }
 }
 
-function resetAndNew() {
+async function resetAndNew() {
+  // "再建一个"前先拉一次最新默认渠道,保证下一次订阅用的是最新设置
+  await loadDefaultChannels()
   nl.value = ''
   form.value = defaultForm()
+  form.value.channels = [...defaultChannels.value]
   step.value = 1
+}
+
+function onCancel() {
+  if (isEdit.value) {
+    // 编辑模式: 取消直接回列表,不做任何修改
+    router.replace('/me/subs')
+  } else {
+    // 新建模式: 返回 Step 1 描述意图
+    step.value = 1
+  }
 }
 </script>

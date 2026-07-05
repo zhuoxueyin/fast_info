@@ -12,6 +12,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/me/subs', component: () => import('@/pages/SubsPage.vue'), name: 'subs', meta: { auth: true } },
   { path: '/me/settings', component: () => import('@/pages/SettingsPage.vue'), name: 'settings', meta: { auth: true } },
   { path: '/subs/new', component: () => import('@/pages/NewSubPage.vue'), name: 'sub-new', meta: { auth: true } },
+  { path: '/subs/edit/:id', component: () => import('@/pages/NewSubPage.vue'), name: 'sub-edit', meta: { auth: true }, props: true },
   // 兼容旧路由重定向
   { path: '/settings', redirect: '/me/settings' },
   { path: '/topic/:tid', component: () => import('@/pages/TopicDetail.vue'), name: 'topic-detail', props: true },

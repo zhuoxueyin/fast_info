@@ -76,12 +76,20 @@ async def run_once(args) -> dict:
         ensure_indexes()
     except Exception as e:
         print(f"  ✗ ensure_indexes failed: {e}")
+        try:
+            update_task_run_finished(run_id, {
+                "finished_at": datetime.now(timezone.utc),
+                "status": "failed",
+                "warning": f"ensure_indexes 失败: {e}",
+            })
+        except Exception:
+            pass
         return empty_result(f"ensure_indexes failed: {e}")
 
     done = get_done_urls()
     recent_titles = get_recent_title_hashes(days=7)
 
-    items = await fetch_all(limit_per_source=args.limit)
+    items = await fetch_all(limit_per_source=args.limit, task_run_id=run_id)
     new_items = [it for it in items if it.id not in done]
     # 跨源标题去重:7 天内已有相同规范化标题的,跳过(保留最早来源)
     before_dedup = len(new_items)
@@ -105,6 +113,17 @@ async def run_once(args) -> dict:
 
     if not os.environ.get("MMX_API_KEY") and not os.environ.get("KIMI_API_KEY"):
         print("  ✗ MMX_API_KEY / KIMI_API_KEY 都没设")
+        try:
+            update_task_run_finished(run_id, {
+                "finished_at": datetime.now(timezone.utc),
+                "status": "failed",
+                "items_fetched": len(items),
+                "items_summarized": 0,
+                "items_failed": len(new_items),
+                "warning": "MMX_API_KEY 和 KIMI_API_KEY 都未配置 — 无法生成摘要",
+            })
+        except Exception:
+            pass
         return empty_result("MMX_API_KEY 和 KIMI_API_KEY 都未配置 — 无法生成摘要")
 
     registry = build_default_registry()
@@ -230,12 +249,19 @@ async def run_once(args) -> dict:
             per_source[src]["summarized"] = int(completed * ratio)
             per_source[src]["errors"] = int(failed * ratio)
     warning = ""
+    final_status = "done"
     if completed == 0 and failed > 0:
         warning = f"全部 {failed} 条 LLM 摘要失败(查 daemon 日志)"
+        final_status = "failed"  # 全失败:真实视角是失败,不再标 done
+    elif completed > 0 and failed > 0:
+        warning = f"部分失败:成功 {completed} / 失败 {failed}"
+        # partial 由 _normalize_task_run_status 在读取时归一化,这里落 done
+        # 但为了让前端不依赖读取层也能看到,显式标 partial
+        final_status = "partial"
     try:
         update_task_run_finished(run_id, {
             "finished_at": finished_at,
-            "status": "done",
+            "status": final_status,
             "items_fetched": len(items),
             "items_summarized": completed,
             "items_failed": failed,

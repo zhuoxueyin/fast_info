@@ -47,10 +47,11 @@
 | `docker/nginx/default.conf` | 反代 /api/、/healthz、/swagger、/docs/ | 不改 |
 | `docker/api-entrypoint.sh` | 启动 init admin 账号 | 不改 |
 | `.env.example` | 共享 env 模板(密钥段) | 复制为 `.env` 后填密钥 |
-| `docker/env.docker.local.example` | Docker 模式差异覆盖 | 复制为 `docker/env.docker.local` |
+| `docker/env.docker.local.example` | Docker 模式差异覆盖(**本机预发用,APP_ENV=docker**) | 复制为 `docker/env.docker.local` |
+| `docker/env.prod.local.example` | ECS 生产专用差异覆盖(**APP_ENV=prod**) | 复制为 `docker/env.prod.local` |
 | `requirements.docker.txt` | Docker 运行时依赖(精简版) | 不改 |
 | `.dockerignore` | 排除 data/、*.log 等 | 不改 |
-| `.gitignore` | 排除 .env / env.docker.local | 不改 |
+| `.gitignore` | 排除 .env / env.docker.local / env.prod.local | 不改 |
 
 ### 1.2 本次新增(本次手册配套落地)
 
