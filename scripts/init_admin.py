@@ -46,6 +46,13 @@ def init_admin(username: str, password: str | None, reset: bool):
 
     pw = password or random_password()
     pw_hash = hash_password(pw)
+
+    if existing and reset:
+        # --reset 真的删旧重建:处理 legacy 字符串 _id 残留(P-MIGRATE)
+        old_id = existing["_id"]
+        users.delete_one({"_id": old_id})
+        print(f"  --reset: 已删除旧 admin(_id={old_id}, type={type(old_id).__name__})")
+
     doc = {
         "username": username,
         "password_hash": pw_hash,

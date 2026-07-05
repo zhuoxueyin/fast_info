@@ -55,12 +55,17 @@ def record_source_run(
     error_code: Optional[ErrorCode] = None,
     error_msg: Optional[str] = None,
     extra: Optional[dict] = None,
+    task_run_id: Optional[str] = None,
 ) -> str:
-    """记录一条 source_run,返回 run_id"""
+    """记录一条 source_run,返回 run_id
+
+    task_run_id: 关联的 task_runs.run_id(用于构建调用树跟踪)
+    """
     db = get_db()
     run_id = str(uuid.uuid4())
     doc = {
         "run_id": run_id,
+        "task_run_id": task_run_id,
         "source_id": source_id,
         "started_at": started_at,
         "ended_at": now_iso(),
@@ -195,12 +200,24 @@ def get_recent_runs(source_id: Optional[str] = None, limit: int = 50) -> list[di
     return out
 
 
+def get_runs_by_task_run_id(task_run_id: str) -> list[dict]:
+    """根据 task_runs.run_id 查关联的所有 source_runs(用于调用树跟踪)"""
+    db = get_db()
+    cur = db["source_runs"].find({"task_run_id": task_run_id}).sort("started_at", 1)
+    out = []
+    for r in cur:
+        r["_id"] = str(r["_id"])
+        out.append(r)
+    return out
+
+
 from crawler.alarms import ensure_indexes as _ensure_alarm_indexes  # noqa: E402
 
 def ensure_indexes():
     db = get_db()
     db["source_runs"].create_index([("source_id", 1), ("created_at", -1)])
     db["source_runs"].create_index([("status", 1), ("created_at", -1)])
+    db["source_runs"].create_index([("task_run_id", 1), ("started_at", 1)])
     db["source_config"].create_index("source_id", unique=True)
     try:
         _ensure_alarm_indexes()

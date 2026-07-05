@@ -10,7 +10,7 @@ fastInfo · MongoDB 存储层
 """
 from __future__ import annotations
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from dataclasses import asdict
 
@@ -293,19 +293,130 @@ def get_task_run_status(run_id: str) -> dict | None:
          "items_summarized": 1, "items_failed": 1, "warning": 1,
          "per_source": 1, "llm_breakdown": 1},
     )
-    return _serialize_datetimes(_strip_oid(doc)) if doc else None
+    return _serialize_datetimes(_strip_oid(_normalize_task_run_status(doc))) if doc else None
+
+
+STALE_RUNNING_THRESHOLD_SEC = 1800  # 30 分钟未结束的 running 视为僵尸
+
+
+def _normalize_task_run_status(doc: dict) -> dict:
+    """统一 task_run 状态语义(从执行中/成功/失败真实视角)。
+
+    落库的原始 status 只有 running/done/failed 三种,且 done 不区分全失败/部分失败。
+    这里在读取时归一化为:
+      - running  → running (未超时) 或 stale (超时 30min 未结束)
+      - done     → done (全成功) / partial (部分失败) / failed (全失败)
+      - failed   → failed
+      - 缺失/老数据 → failed (无 status 字段的视为失败)
+    """
+    if doc is None:
+        return doc
+    raw = doc.get("status")
+    finished = doc.get("finished_at")
+    started = doc.get("started_at")
+
+    if raw == "running":
+        # 判断是否僵尸:started_at 超过阈值且未结束
+        if started is not None and finished is None:
+            try:
+                if isinstance(started, str):
+                    started_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                else:
+                    started_dt = started
+                if isinstance(started_dt, datetime):
+                    elapsed = (datetime.now(timezone.utc) - started_dt).total_seconds()
+                    if elapsed > STALE_RUNNING_THRESHOLD_SEC:
+                        doc["status"] = "stale"
+                        doc["status_reason"] = f"running 超过 {int(elapsed)}s 未结束,视为僵尸"
+            except Exception:
+                pass
+        return doc
+
+    if raw == "done":
+        summ = int(doc.get("items_summarized") or 0)
+        failed = int(doc.get("items_failed") or 0)
+        if summ == 0 and failed > 0:
+            # 全失败却标 done —— 真实视角是失败
+            doc["status"] = "failed"
+            doc["status_reason"] = "items_summarized=0 且 items_failed>0,判定为失败"
+        elif summ > 0 and failed > 0:
+            doc["status"] = "partial"
+            doc["status_reason"] = f"部分失败:成功 {summ} / 失败 {failed}"
+        # else 保持 done
+        return doc
+
+    if raw == "failed":
+        return doc
+
+    # 老数据无 status 字段(Day 5 之前) —— 视为失败(无法判断真实状态)
+    if raw is None:
+        doc["status"] = "failed"
+        doc["status_reason"] = "无 status 字段(老数据),无法判定真实状态"
+    return doc
 
 
 def get_recent_task_runs(limit: int = 20) -> list[dict]:
     db = get_db()
     cursor = db["task_runs"].find().sort("started_at", DESCENDING).limit(limit)
-    return [_serialize_datetimes(_strip_oid(d)) for d in cursor]
+    runs = [_serialize_datetimes(_strip_oid(_normalize_task_run_status(d))) for d in cursor]
+    # 批量聚合每条 task 的源级统计(避免 N+1)
+    run_ids = [r["run_id"] for r in runs if r.get("run_id")]
+    if run_ids:
+        pipeline = [
+            {"$match": {"task_run_id": {"$in": run_ids}}},
+            {"$group": {
+                "_id": {"run_id": "$task_run_id", "status": "$status"},
+                "count": {"$sum": 1},
+            }},
+        ]
+        agg: dict[str, dict[str, int]] = {}
+        for d in db["source_runs"].aggregate(pipeline):
+            rid = d["_id"]["run_id"]
+            st = d["_id"]["status"]
+            agg.setdefault(rid, {})[st] = d["count"]
+        for r in runs:
+            rid = r.get("run_id")
+            if rid and rid in agg:
+                stats = agg[rid]
+                r["source_stats"] = {
+                    "ok": stats.get("ok", 0),
+                    "fail": stats.get("fail", 0),
+                    "partial": stats.get("partial", 0),
+                    "disabled": stats.get("disabled", 0),
+                }
+            else:
+                r["source_stats"] = {"ok": 0, "fail": 0, "partial": 0, "disabled": 0}
+    return runs
 
 
 def get_task_run(run_id: str) -> dict | None:
     db = get_db()
     doc = db["task_runs"].find_one({"run_id": run_id})
-    return _serialize_datetimes(_strip_oid(doc)) if doc else None
+    return _serialize_datetimes(_strip_oid(_normalize_task_run_status(doc))) if doc else None
+
+
+def reap_stale_task_runs(threshold_sec: int = STALE_RUNNING_THRESHOLD_SEC) -> int:
+    """回收僵尸 running 任务:把超过 threshold_sec 未结束的 running 标记为 failed。
+
+    返回回收条数。进程崩溃/被 kill 后,running 记录会永久残留,此函数用于清理。
+    """
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=threshold_sec)
+    res = db["task_runs"].update_many(
+        {
+            "status": "running",
+            "started_at": {"$lt": cutoff},
+        },
+        {
+            "$set": {
+                "status": "failed",
+                "finished_at": datetime.now(timezone.utc),
+                "warning": f"僵尸任务回收:running 超过 {threshold_sec}s 未结束(进程可能崩溃/被 kill)",
+                "status_reason": "reaped by reap_stale_task_runs",
+            }
+        },
+    )
+    return res.modified_count
 
 
 def get_source_status_24h() -> list[dict]:

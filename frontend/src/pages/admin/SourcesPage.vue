@@ -4,14 +4,17 @@
     <div class="flex items-center gap-4 mb-6">
       <h1 class="text-2xl font-bold text-slate-900">📡 数据源管理</h1>
       <n-button @click="refreshAll" :loading="loading">🔄 刷新</n-button>
-      <n-button type="primary" @click="showAddModal = true">+ 新增源</n-button>
-      <nav class="flex gap-2 text-sm ml-auto">
-        <router-link to="/admin" class="px-3 py-1 rounded hover:bg-slate-100">汇总</router-link>
-        <router-link to="/admin/tasks" class="px-3 py-1 rounded hover:bg-slate-100">任务</router-link>
-        <router-link to="/admin/sources" class="px-3 py-1 rounded bg-emerald-50 text-emerald-700">源</router-link>
-        <router-link to="/admin/banner" class="px-3 py-1 rounded hover:bg-slate-100">Banner</router-link>
-      </nav>
+      <AdminTabs class="ml-auto" />
     </div>
+
+    <!-- Agent 接入提示 -->
+    <n-alert type="info" :show-icon="true" class="mb-4" :bordered="false">
+      <template #header>
+        <span class="font-medium">新增数据源请通过 Agent 接入</span>
+      </template>
+      页面暂不开放手工新建。后续源接入统一由 Agent 完成(抓取策略 / 镜像 / 配额等由 Agent 自动配置)。
+      可通过「编辑」调整现有源的展示名、L1 类目、cron 周期与单次抓取上限。
+    </n-alert>
 
     <!-- 健康度总览 -->
     <section class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -33,9 +36,27 @@
       </n-card>
     </section>
 
-    <!-- 健康度表格 -->
-    <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-      <h2 class="text-lg font-semibold mb-4">源列表与健康度</h2>
+    <!-- 筛选条 -->
+    <div class="flex items-center gap-3 mb-3">
+      <n-select
+        v-model:value="filterL1"
+        :options="l1Options"
+        placeholder="全部 L1 类目"
+        clearable
+        style="width: 180px"
+        size="small"
+        @update:value="refreshAll"
+      />
+      <n-checkbox v-model:checked="activeOnly" @update:checked="refreshAll">
+        仅显示启用
+      </n-checkbox>
+      <span class="ml-auto text-xs text-slate-500">
+        共 {{ (sources || []).length }} 条
+      </span>
+    </div>
+
+    <!-- 源列表与健康度 -->
+    <section class="bg-white rounded-xl border border-slate-200 p-4">
       <n-data-table
         :columns="columns"
         :data="(sources || [])"
@@ -46,40 +67,6 @@
         :row-key="(row: any) => row.source_id"
       />
     </section>
-
-    <!-- 新增源弹窗 -->
-    <n-modal v-model:show="showAddModal" preset="card" title="新增数据源" style="max-width: 600px">
-      <n-form :model="newSource" label-placement="left" label-width="120">
-        <n-form-item label="source_id">
-          <n-input v-model:value="newSource.source_id" placeholder="如 newrss / weibo:12345" />
-        </n-form-item>
-        <n-form-item label="kind">
-          <n-select
-            v-model:value="newSource.kind"
-            :options="kindOptions"
-            placeholder="选择类型"
-          />
-        </n-form-item>
-        <n-form-item label="展示名">
-          <n-input v-model:value="newSource.display_name" placeholder="中文显示名" />
-        </n-form-item>
-        <n-form-item label="URL">
-          <n-input v-model:value="newSource.url" placeholder="主 URL(或微博/X 的 uid)" />
-        </n-form-item>
-        <n-form-item label="一级类目 L1">
-          <n-select v-model:value="newSource.l1" :options="l1Options" placeholder="选 L1" />
-        </n-form-item>
-        <n-form-item label="limit/run">
-          <n-input-number v-model:value="newSource.limit_per_run" :min="1" :max="100" />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <div class="flex justify-end gap-2">
-          <n-button @click="showAddModal = false">取消</n-button>
-          <n-button type="primary" @click="onAdd" :loading="adding">创建</n-button>
-        </div>
-      </template>
-    </n-modal>
 
     <!-- 编辑源弹窗 -->
     <n-modal v-model:show="showEditModal" preset="card" title="编辑数据源" style="max-width: 700px">
@@ -140,41 +127,29 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted } from 'vue'
-import { NButton, NTag, NSwitch, NSpace, useMessage } from 'naive-ui'
+import { NButton, NTag, NSwitch, NSpace, NCheckbox, NSelect, useMessage } from 'naive-ui'
 import {
-  listSources, getHealthSummary, createSource, updateSource,
+  listSources, getHealthSummary, updateSource,
   toggleSource, testSource, type SourceConfig, type SourceHealthSummary,
 } from '@/lib/api'
+import AdminTabs from '@/components/AdminTabs.vue'
 
 const message = useMessage()
 const sources = ref<SourceConfig[]>([])
 const healthSummary = ref<Awaited<ReturnType<typeof getHealthSummary>> | null>(null)
 const loading = ref(false)
 
-const showAddModal = ref(false)
+// 筛选
+const filterL1 = ref<string | null>(null)
+const activeOnly = ref(false)
+
 const showEditModal = ref(false)
 const showTestResult = ref(false)
-const adding = ref(false)
 const editing = ref(false)
 const editingSource = ref<SourceConfig | null>(null)
 const testResult = ref<any>(null)
 
 const l1Options = ['科技', 'AI', '体育', '娱乐', '财经', '汽车', '其他'].map(v => ({ label: v, value: v }))
-const kindOptions = [
-  { label: 'RSS / Atom', value: 'rss' },
-  { label: '微博用户', value: 'weibo_user' },
-  { label: 'X(Twitter)用户', value: 'x_user' },
-  { label: '小红书用户', value: 'xhs_note' },
-]
-
-const newSource = ref<Partial<SourceConfig>>({
-  source_id: '',
-  kind: 'rss',
-  display_name: '',
-  url: '',
-  l1: '科技',
-  limit_per_run: 15,
-})
 
 const failingSources = computed(() => {
   if (!healthSummary.value?.items) return 0
@@ -185,7 +160,10 @@ async function refreshAll() {
   loading.value = true
   try {
     const [list, summary] = await Promise.all([
-      listSources(),
+      listSources({
+        l1: filterL1.value || undefined,
+        active_only: activeOnly.value,
+      }),
       getHealthSummary(1),
     ])
     sources.value = list.items
@@ -197,10 +175,11 @@ async function refreshAll() {
   }
 }
 
-async function onToggle(s: SourceConfig) {
+async function onToggle(s: SourceConfig, next: boolean) {
+  if (s.is_active === next) return
   try {
     await toggleSource(s.source_id)
-    message.success(`${s.source_id} 已${s.is_active ? '禁用' : '启用'}`)
+    message.success(`${s.source_id} 已${next ? '启用' : '禁用'}`)
     await refreshAll()
   } catch (e: any) {
     message.error('操作失败: ' + (e?.message || e))
@@ -224,27 +203,6 @@ async function onSaveEdit() {
     message.error('保存失败: ' + (e?.message || e))
   } finally {
     editing.value = false
-  }
-}
-
-async function onAdd() {
-  if (!newSource.value.source_id || !newSource.value.kind) {
-    message.warning('source_id 和 kind 必填')
-    return
-  }
-  adding.value = true
-  try {
-    await createSource(newSource.value)
-    message.success('已创建')
-    showAddModal.value = false
-    newSource.value = {
-      source_id: '', kind: 'rss', display_name: '', url: '', l1: '科技', limit_per_run: 15,
-    }
-    await refreshAll()
-  } catch (e: any) {
-    message.error('创建失败: ' + (e?.message || e))
-  } finally {
-    adding.value = false
   }
 }
 
@@ -275,27 +233,71 @@ function statusTagType(status: string) {
   }
 }
 
+function healthState(row: SourceConfig) {
+  const s = healthSummary.value?.items?.find(i => i.source_id === row.source_id) as SourceHealthSummary | undefined
+  if (!s) {
+    return { rate: null, total: 0, ok: 0, fail: 0, consecutive: 0, threshold: 5, color: 'slate', label: '无数据' }
+  }
+  const consecutive = s.consecutive_fails || 0
+  const threshold = row.auto_disable_threshold || 5
+  const total = s.total_runs || 0
+  const ok = s.ok_runs || 0
+  const fail = s.fail_runs || 0
+  const rate = s.success_rate
+  let color: 'emerald' | 'amber' | 'rose' | 'slate' = 'emerald'
+  let label = '健康'
+  if (!row.is_active) {
+    color = 'slate'
+    label = '已禁用'
+  } else if (consecutive >= threshold) {
+    color = 'rose'
+    label = '已禁用'
+  } else if (consecutive > 0) {
+    color = 'amber'
+    label = '异常'
+  } else if (total === 0) {
+    color = 'slate'
+    label = '未运行'
+  }
+  return { rate, total, ok, fail, consecutive, threshold, color, label }
+}
+
+// 行内开关 loading 状态
+const toggling: Record<string, boolean> = {}
+
 const columns = computed(() => [
   {
-    title: '状态',
-    key: 'is_active',
-    width: 90,
+    title: '开关',
+    key: 'toggle',
+    width: 80,
     render: (row: SourceConfig) =>
-      h(NTag, { type: row.is_active ? 'success' : 'error', size: 'small' }, () => row.is_active ? '启用' : '禁用'),
+      h(NSwitch, {
+        size: 'small',
+        value: row.is_active,
+        loading: toggling[row.source_id] === true,
+        onUpdateValue: (v: boolean) => {
+          toggling[row.source_id] = true
+          onToggle(row, v).finally(() => { delete toggling[row.source_id] })
+        },
+      }),
   },
   {
-    title: 'health',
-    key: 'health_cell',
-    width: 180,
+    title: '健康',
+    key: 'health',
+    width: 220,
     render: (row: SourceConfig) => {
-      const s = healthSummary.value?.items?.find(i => i.source_id === row.source_id) as SourceHealthSummary | undefined
-      if (!s) return '—'
-      const rate = s.success_rate != null ? `${Math.round(s.success_rate * 100)}%` : '—'
-      const fc = s.consecutive_fails || 0
-      const color = fc >= row.auto_disable_threshold ? 'error' : (fc > 0 ? 'warning' : 'success')
-      return h('div', { class: 'text-xs' }, [
-        h('div', { class: `text-${color === 'error' ? 'rose' : color === 'warning' ? 'amber' : 'emerald'}-600 font-medium` }, `成功率 ${rate}`),
-        h('div', { class: 'text-slate-500' }, `连续失败 ${fc}/${row.auto_disable_threshold}`),
+      const st = healthState(row)
+      const dotCls = `w-2 h-2 rounded-full bg-${st.color}-500 inline-block mr-2`
+      return h('div', { class: 'text-xs flex flex-col gap-0.5' }, [
+        h('div', { class: 'flex items-center' }, [
+          h('span', { class: dotCls }),
+          h('span', { class: `text-${st.color}-600 font-medium` }, st.label),
+        ]),
+        h('div', { class: 'text-slate-500' }, [
+          `成功率 ${st.rate != null ? Math.round(st.rate * 100) + '%' : '—'}`,
+          ` · 连续失败 ${st.consecutive}/${st.threshold}`,
+        ]),
+        h('div', { class: 'text-slate-400' }, `近 24h ${st.total} 次(${st.ok} 成功 / ${st.fail} 失败)`),
       ])
     },
   },
@@ -319,17 +321,38 @@ const columns = computed(() => [
     width: 70,
   },
   {
+    title: '最近抓取',
+    key: 'last_run',
+    width: 160,
+    render: (row: SourceConfig) => {
+      const s = healthSummary.value?.items?.find(i => i.source_id === row.source_id) as SourceHealthSummary | undefined
+      if (!s || !s.last_run_at) return h('span', { class: 'text-slate-400 text-xs' }, '—')
+      const tag = statusTagType(s.last_status || '')
+      return h('div', { class: 'text-xs flex flex-col' }, [
+        h(NTag, { type: tag as any, size: 'small', bordered: false }, () => s.last_status || '?'),
+        h('span', { class: 'text-slate-400 mt-0.5' }, formatTime(s.last_run_at)),
+      ])
+    },
+  },
+  {
     title: '操作',
     key: 'actions',
-    width: 280,
+    width: 200,
     render: (row: SourceConfig) =>
       h(NSpace, { size: 4 }, () => [
-        h(NButton, { size: 'small', onClick: () => onToggle(row) }, () => row.is_active ? '禁用' : '启用'),
         h(NButton, { size: 'small', onClick: () => openEdit(row) }, () => '编辑'),
-        h(NButton, { size: 'small', type: 'info', onClick: () => onTest(row) }, () => '测试'),
+        h(NButton, { size: 'small', type: 'info', ghost: true, onClick: () => onTest(row) }, () => '测试'),
       ]),
   },
 ])
+
+function formatTime(iso?: string | null) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 onMounted(refreshAll)
 </script>

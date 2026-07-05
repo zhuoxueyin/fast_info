@@ -5,6 +5,7 @@ fastInfo · 管理员鉴权依赖
 `require_admin` 在 `require_user` 基础上多查一次 users.role。
 """
 from fastapi import Depends, HTTPException, status
+from bson import ObjectId
 
 from api.deps import require_user
 from storage.mongo_writer import get_sync_client, DEFAULT_DB
@@ -12,7 +13,11 @@ from storage.mongo_writer import get_sync_client, DEFAULT_DB
 
 def _load_role(user_id: str) -> str:
     db = get_sync_client()[DEFAULT_DB]
-    user = db["users"].find_one({"_id": user_id}, {"role": 1})
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        return "user"
+    user = db["users"].find_one({"_id": oid}, {"role": 1})
     return (user or {}).get("role", "user")
 
 

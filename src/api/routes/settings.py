@@ -13,11 +13,17 @@ GET  /api/notifier/channels              列出可用渠道 + 需要字段
   - webhook    通用 webhook (URL)
 
 存储在 users 集合,user_id 主键,可选。
+
+设计要点(P2 唯一链路):
+    user dict 由 deps.require_user 填充好,这里直接用,
+    不再二次 Mongo 查询 ── 旧实现每次都 ObjectId() 一次,在
+    老 JWT sub='u_admin' 时崩成 500 (pre-staging 复现过)。
 """
 from __future__ import annotations
-import os
+from datetime import datetime, timezone
 from typing import Optional
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -39,18 +45,18 @@ CHANNEL_FIELDS = {
 }
 
 
-def _to_view(user_doc: dict) -> dict:
-    """读用户 settings 视图(密码脱敏)"""
+def _to_view(user: dict) -> dict:
+    """读用户 settings 视图(密码脱敏)。入参是 deps 已经填好的 user dict。"""
     return {
-        "email":                     user_doc.get("email", ""),
-        "smtp_host":                 user_doc.get("smtp_host", "smtp.qq.com"),
-        "smtp_port":                 user_doc.get("smtp_port", 465),
-        "smtp_user":                 user_doc.get("smtp_user", ""),
-        "smtp_pass_set":             bool(user_doc.get("smtp_pass")),
-        "feishu_webhook":            user_doc.get("feishu_webhook", ""),
-        "wechat_webhook":            user_doc.get("wechat_webhook", ""),
-        "webhook_url":               user_doc.get("webhook_url", ""),
-        "channels":                  user_doc.get("default_channels", ["inbox"]),
+        "email":                     user.get("email", ""),
+        "smtp_host":                 user.get("smtp_host", "smtp.qq.com"),
+        "smtp_port":                 user.get("smtp_port", 465),
+        "smtp_user":                 user.get("smtp_user", ""),
+        "smtp_pass_set":             bool(user.get("smtp_pass")),
+        "feishu_webhook":            user.get("feishu_webhook", ""),
+        "wechat_webhook":            user.get("wechat_webhook", ""),
+        "webhook_url":               user.get("webhook_url", ""),
+        "channels":                  user.get("default_channels") or ["inbox"],
     }
 
 
@@ -68,15 +74,13 @@ class SettingsUpdate(BaseModel):
 
 @router.get("/settings")
 async def get_my_settings(user: dict = Depends(require_user)):
-    db = get_db()
-    from bson import ObjectId
-    doc = db["users"].find_one({"_id": ObjectId(user["id"])}) or {}
-    return _to_view(doc)
+    """读用户推送配置(密码脱敏)。直接用 deps 填好的 user dict,不二次查库。"""
+    return _to_view(user)
 
 
 @router.put("/settings")
 async def update_my_settings(body: SettingsUpdate, user: dict = Depends(require_user)):
-    db = get_db()
+    """改用户推送配置。deps 已经验证过 user.id 是合法 ObjectId,这里直接 update_one。"""
     update: dict = {}
     if body.email is not None:
         update["email"] = body.email
@@ -99,8 +103,8 @@ async def update_my_settings(body: SettingsUpdate, user: dict = Depends(require_
         update["default_channels"] = [c for c in body.default_channels if c in valid]
     if not update:
         return {"ok": False, "message": "no fields to update"}
-    from datetime import datetime, timezone
-    from bson import ObjectId
+
+    db = get_db()
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
     db["users"].update_one({"_id": ObjectId(user["id"])}, {"$set": update})
     return {"ok": True, "updated": list(update.keys())}
@@ -108,27 +112,13 @@ async def update_my_settings(body: SettingsUpdate, user: dict = Depends(require_
 
 @router.post("/notifier/test")
 async def test_my_notifier(body: dict, user: dict = Depends(require_user)):
-    """测试指定渠道(给前端 button)"""
+    """测试指定渠道(给前端 button)。user dict 已经是 deps 填好的完整版,不二次查库。"""
     channel = body.get("channel")
     if not channel or channel not in CHANNEL_FIELDS:
         raise HTTPException(400, f"channel must be one of {list(CHANNEL_FIELDS.keys())}")
     from notifier.test import test_channel
-    from bson import ObjectId
-    db = get_db()
-    user_doc = db["users"].find_one({"_id": ObjectId(user["id"])}) or user
-    test_user = {
-        **user_doc,
-        "email":                  user_doc.get("email", ""),
-        "smtp_host":              user_doc.get("smtp_host", "smtp.qq.com"),
-        "smtp_port":              user_doc.get("smtp_port", 465),
-        "smtp_user":              user_doc.get("smtp_user", ""),
-        "smtp_pass":              user_doc.get("smtp_pass", ""),
-        "feishu_webhook":         user_doc.get("feishu_webhook", ""),
-        "wechat_webhook":         user_doc.get("wechat_webhook", ""),
-        "webhook_url":            user_doc.get("webhook_url", ""),
-        "username":               user_doc.get("username", "test"),
-    }
-    r = test_channel(channel, user=test_user)
+    # user dict 已经包含所有 channel 字段 (deps._enrich_user 一次性填齐)
+    r = test_channel(channel, user=user)
     return {"channel": channel, **r}
 
 

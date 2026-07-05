@@ -26,11 +26,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
+import { useRouter } from 'vue-router'
 import { NButton, NDataTable, NEmpty, useMessage, NPopconfirm, NSwitch, NTag, type DataTableColumns } from 'naive-ui'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { Subscription } from '@/types/api'
 
+const router = useRouter()
 const auth = useAuthStore()
 const msg = useMessage()
 const subs = ref<Subscription[]>([])
@@ -67,9 +69,10 @@ const cols: DataTableColumns<Subscription> = [
     }),
   },
   {
-    title: '操作', key: 'actions', width: 200,
+    title: '操作', key: 'actions', width: 260,
     render: (row: Subscription) => h('div', { class: 'flex gap-2' }, [
       h(NButton, { size: 'small', onClick: () => runSub(row.id) }, () => '▶ 立即推送'),
+      h(NButton, { size: 'small', type: 'primary', ghost: true, onClick: () => goEdit(row.id) }, () => '✏️ 修改'),
       h(NPopconfirm, {
         onPositiveClick: () => deleteSub(row.id),
       }, {
@@ -102,6 +105,10 @@ async function runSub(id: string) {
     const detail = e?.data?.detail || e?.message || '运行失败'
     msg.error(typeof detail === 'string' ? detail : '运行失败，请检查后端日志')
   }
+}
+
+function goEdit(id: string) {
+  router.push(`/subs/edit/${id}`)
 }
 
 async function deleteSub(id: string) {
