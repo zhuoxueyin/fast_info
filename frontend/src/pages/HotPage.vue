@@ -211,12 +211,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, type FunctionalComponent } from 'vue'
 import dayjs from 'dayjs'
 import { NDropdown, NEmpty } from 'naive-ui'
 import {
   Trophy, RefreshCw, Cpu, Bot, Trophy as SportIcon, Film,
-  DollarSign, Car, Folder, type FunctionalComponent,
+  DollarSign, Car, Folder,
 } from 'lucide-vue-next'
 import { api } from '@/lib/api'
 import type { Item } from '@/types/api'
