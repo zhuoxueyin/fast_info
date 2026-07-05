@@ -147,6 +147,25 @@ docker compose up 时,容器内环境变量叠加顺序(高 → 低):
 
 ### 2.5.3 为什么 P 环境只保留一个目录
 
+### 2.5.5 服务器红线:只读代码,绝不 push
+
+**生产服务器 (`/opt/fast_info`) 只用于部署，禁止在该目录做任何 git push、commit、merge 等写仓库操作。**
+
+原因:
+
+- 服务器代码必须可追踪为 `origin/master` 的精确副本
+- 在服务器上写代码/merge 会导致本地和远程分支状态不一致，难以回滚
+- 所有代码改动必须在本地开发机完成，由你本人 review 后 push master，服务器只做 `git pull`
+
+**正确流程**:
+
+```text
+本地开发机: git checkout feat/xxx → 改代码 → commit → push origin feat/xxx → 你 merge 到 master → push origin master
+服务器:      git checkout master && git pull origin master && bash scripts/deploy-prod.sh
+```
+
+### 2.5.6 为什么 P 环境只保留一个目录
+
 **不要在服务器上为不同分支建多个项目目录。** 原因:
 
 - Docker volumes(`mongo_data` / `redis_data` / `api_data`)按项目目录隔离，多目录会导致数据分裂
