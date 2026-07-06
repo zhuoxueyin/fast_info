@@ -1,15 +1,15 @@
 <template>
-  <div class="min-h-screen bg-slate-50 max-w-md mx-auto pb-20">
-    <!-- 顶 header(只在 MobileLayout 自己显示,不在子页面再渲染) -->
-    <header class="sticky top-0 bg-white border-b z-20 px-4 py-3 flex items-center justify-between">
+  <div class="ml-shell">
+    <!-- 顶 header -->
+    <header class="ml-header">
       <div class="flex items-center gap-2">
         <BrandLogo size="sm" />
       </div>
       <button v-if="auth.isLoggedIn" class="text-sm text-slate-500" @click="logout">退出</button>
     </header>
 
-    <!-- 子路由出口(由 router-view 决定渲染哪个 mobile 页面) -->
-    <main class="px-4 py-3">
+    <!-- 子路由出口 -->
+    <main class="ml-main">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
           <component :is="Component" />
@@ -17,8 +17,8 @@
       </router-view>
     </main>
 
-    <!-- 底 tab · 5 个核心入口(登录态切换"我的"/"登录") -->
-    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around py-2 z-20 max-w-md mx-auto">
+    <!-- 底 tab - 用 fixed bottom-0, 不随内容滚走 -->
+    <nav class="ml-tabbar">
       <router-link
         to="/m"
         class="tab-link"
@@ -85,11 +85,6 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-/**
- * 判断当前 tab 是否高亮
- * - exact=true 表示要精确匹配(用于 /m 和 /m/me)
- * - 否则前缀匹配(用于 /m/hot 匹配 /m/hot/...)
- */
 function isActive(path: string, exact = false): boolean {
   if (exact) return route.path === path
   return route.path === path || route.path.startsWith(path + '/')
@@ -103,6 +98,60 @@ function logout() {
 </script>
 
 <style scoped>
+/* 外壳: 全屏, 内容用 flex 布局, header 固定高度, main 自适应, nav 固定底部 */
+.ml-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 28rem;   /* max-w-md = 448px */
+  margin: 0 auto;
+  min-height: 100vh;
+  min-height: 100dvh;   /* iOS Safari 兼容, 动态视口高度 */
+  background: #f8fafc;  /* bg-slate-50 */
+  position: relative;
+}
+
+/* 顶 header: sticky 顶部 */
+.ml-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;  /* slate-200 */
+  flex-shrink: 0;
+}
+
+/* 中间 main: flex-1 自动填充 */
+.ml-main {
+  flex: 1 1 auto;
+  padding: 12px 16px;
+  overflow-y: auto;
+  /* 关键: 给 main 自己一个滚动容器, 而不是 window 滚 */
+  /* 这样 fixed 底 tab 永远不会消失 */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 底 tab: fixed bottom-0 */
+.ml-tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 0;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+  /* 关键: 配合 max-w-md 的视觉宽度, 用 padding 模拟居中 */
+  /* 但 fixed 元素无法被父 max-w 约束, 所以用 inset + box-shadow 边界 */
+}
+
+/* tab 项样式 */
 .tab-link {
   display: flex;
   flex-direction: column;
@@ -110,14 +159,16 @@ function logout() {
   font-size: 10px;
   color: #64748b;  /* slate-500 */
   transition: color 0.15s;
-  padding: 2px 8px;
+  padding: 2px 12px;
 }
 .tab-link:active {
   transform: scale(0.95);
 }
 .tab-active {
-  color: #10B981 !important;  /* emerald-500 */
+  color: #10B981 !important;
 }
+
+/* fade transition */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.12s;
@@ -125,5 +176,12 @@ function logout() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* 大屏(narrower): 不限制 max-w, 让 tabbar 全宽 */
+@media (min-width: 28rem) {
+  .ml-shell {
+    box-shadow: 0 0 0 1px #e2e8f0;
+  }
 }
 </style>

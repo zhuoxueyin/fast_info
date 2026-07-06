@@ -252,14 +252,17 @@ async function loadFeed() {
   if (loading.value) return
   loading.value = true
   try {
-    const params: any = { limit: PAGE_SIZE, offset: offset.value }
+    const params: any = { limit: PAGE_SIZE }
     if (activeL1.value !== '全部') params.l1 = activeL1.value
     if (activeL2.value) params.l2 = activeL2.value
-    const r = await api<any>('/items', { query: params })
+    // /api/today 是 desktop HomePage 用的端点,返回今日推荐流
+    const r = await api<any>('/today', { query: params })
     const newItems = r?.items || []
-    feed.value = [...feed.value, ...newItems]
-    if (newItems.length < PAGE_SIZE) noMore.value = true
-  } catch {
+    feed.value = newItems  // /today 不支持 offset,一次性返回
+    noMore.value = true
+  } catch (e: any) {
+    console.error('loadFeed failed:', e)
+    feed.value = []
     noMore.value = true
   } finally {
     loading.value = false
@@ -267,29 +270,21 @@ async function loadFeed() {
 }
 
 async function loadMore() {
-  if (loadingMore.value || noMore.value) return
-  loadingMore.value = true
-  offset.value += PAGE_SIZE
-  try {
-    const params: any = { limit: PAGE_SIZE, offset: offset.value }
-    if (activeL1.value !== '全部') params.l1 = activeL1.value
-    if (activeL2.value) params.l2 = activeL2.value
-    const r = await api<any>('/items', { query: params })
-    const newItems = r?.items || []
-    feed.value = [...feed.value, ...newItems]
-    if (newItems.length < PAGE_SIZE) noMore.value = true
-  } catch {
-    noMore.value = true
-  } finally {
-    loadingMore.value = false
-  }
+  // /api/today 不支持分页,这里空实现
+  noMore.value = true
 }
 
-// 滚动到底自动加载
+// 滚动到底自动加载 - 监听 window scroll, 因为我们嵌在 MobileLayout 里
 function onScroll() {
-  const sc = document.scrollingElement
-  if (!sc) return
-  if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 200) {
+  // 距离底部 200px 内触发
+  const sc = window
+  const docHeight = Math.max(
+    document.body.scrollHeight,
+    document.documentElement.scrollHeight
+  )
+  const winHeight = window.innerHeight
+  const scrollTop = window.scrollY || document.documentElement.scrollTop || 0
+  if (docHeight - (scrollTop + winHeight) < 200) {
     loadMore()
   }
 }
