@@ -3,12 +3,17 @@
 > **分支**:`feat/mobile-adapt`(从 master 切出,准备合并回 master)
 > **目标**:同一访问地址,手机 UA 自动渲染移动版,桌面 UA 保留桌面版。
 > **完成时间**:Day 12, 2026-07-07
+> **hotfix**: 修复"双顶栏" + "切热榜组件消失"两个 bug (commit df7d59d)
 
 ---
 
 ## 0. 一句话总结
 
 fastInfo 之前已经有 9 个 `/m/*` 移动端页面,但用户**必须手动输 `/m/`** 才能看到。Day 12 加了 UA 检测 + 路由守卫,**同一地址手机自动跳 `/m/`、桌面自动跳回**;并补齐缺失的 4 个 mobile 页面,达到"手机全功能可用"。
+
+hotfix 修复了第一版实现的两个布局 bug:
+- App.vue 永远 wrap DefaultLayout 导致 mobile 看到 desktop 顶 nav
+- mobile 路由平铺结构导致 tab 切换时 layout 整个重渲染,组件"消失"
 
 ---
 
@@ -33,6 +38,33 @@ fastInfo 之前已经有 9 个 `/m/*` 移动端页面,但用户**必须手动输
 | `frontend/src/pages/m/MobileLayout.vue` | emoji → lucide 图标;清理 |
 
 ### 1.3 路由结构
+
+**Mobile 路由改成嵌套结构(关键改动, hotfix)**:
+
+```
+原来(平铺 - bug):
+  /m       → MobileLayout (壳,但 router-view 是空的,因为没有子路由)
+  /m/hot   → MobileHot (独立 component,外面没 MobileLayout 顶/底 tab)
+  /m/me    → MobileMe (同上)
+  → 问题: 切换 tab 时 MobileLayout 整个重渲染, 顶/底 nav + 状态全丢
+
+现在(嵌套 - 修好):
+  /m (MobileLayout)
+    ├─ ''              → MobileHome
+    ├─ hot             → MobileHot
+    ├─ search          → MobileSearch
+    ├─ topics          → MobileTopicsPage
+    ├─ topic/:tid      → MobileTopicDetail
+    ├─ me              → MobileMe
+    ├─ me/inbox        → MobileInbox
+    ├─ me/subs         → MobileSubs
+    ├─ me/settings     → MobileSettings
+    ├─ subs/new        → MobileNewSub
+    ├─ subs/edit/:id   → MobileNewSub (复用)
+    ├─ login           → MobileLogin
+    └─ items/:id       → MobileItem
+  → 切 tab 时只换 router-view 内容, MobileLayout (顶/底 nav) 持久化
+```
 
 ```
 Desktop 路由(原有 13 条 + admin 5 条):
