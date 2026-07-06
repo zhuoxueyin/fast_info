@@ -42,7 +42,14 @@ else
 fi
 grep -q "^MMX_API_KEY=.\+" .env || { err ".env 里 MMX_API_KEY 没填,服务起来 LLM 调用也会失败"; exit 1; }
 
-# 将最终选用的 env_file 导入当前 shell,方便部署脚本读取 FASTINFO_ADMIN_PASSWORD 等变量
+# 将 .env(共享配置)和最终选用的 env_file(环境差异)导入当前 shell,
+# 方便部署脚本读取 FASTINFO_ADMIN_PASSWORD 等变量
+if [ -f .env ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source .env
+  set +a
+fi
 ENV_FILE="${FASTINFO_ENV_FILE:-docker/env.prod.local}"
 if [ -f "$ENV_FILE" ]; then
   set -a
@@ -97,22 +104,34 @@ log "   ✅ build 完成"
 log "4/6 restart containers"
 docker compose up -d --remove-orphans
 
+# 健康检查总开关,admin 初始化失败也视为部署异常
+HEALTH_OK=true
+
 # === 4.5 确保 admin 账号存在 ===
 log "4.5/6 确保 admin 账号存在"
 ADMIN_USERNAME="${FASTINFO_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${FASTINFO_ADMIN_PASSWORD:-admin@2026}"
+
+# 等 api 容器进入 running 状态,最多 30s
+for i in $(seq 1 30); do
+  if docker compose ps api --status running --format json 2>/dev/null | grep -q '"Name":"fastinfo-api"'; then
+    break
+  fi
+  sleep 1
+done
+
 if docker compose exec -T api python scripts/init_admin.py --username "$ADMIN_USERNAME" --password "$ADMIN_PASSWORD" > /tmp/fastinfo-init-admin.log 2>&1; then
   log "   ✅ admin 账号检查/创建完成(如已存在则幂等跳过)"
+  grep -E "username:|password:" /tmp/fastinfo-init-admin.log || true
 else
-  warn "   !! admin 初始化可能失败或已存在,详情见 /tmp/fastinfo-init-admin.log"
+  err "   ❌ admin 初始化失败"
   cat /tmp/fastinfo-init-admin.log
+  HEALTH_OK=false
 fi
 
 # === 5. 健康检查 ===
 log "5/6 健康检查"
 sleep 20
-
-HEALTH_OK=true
 
 # 4.1 /healthz 走 Nginx
 if curl -sf http://127.0.0.1:18080/healthz > /dev/null; then
