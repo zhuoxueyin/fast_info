@@ -60,6 +60,7 @@
 | `scripts/deploy-local.sh` | L 本地开发环境拉起 | 本机(本机有 docker 起 mongo+redis,API 走 venv) |
 | `scripts/deploy-staging.sh` | S 预发布环境拉起 | 本机(完整 6 服务,18080 端口) |
 | `scripts/deploy-prod.sh` | P 正式环境拉起/更新 | 云服务器(git pull + build + up + healthcheck) |
+| `scripts/check-env-sync.sh` | env 模板与实例同步检查 | 部署前手动跑,发现实例缺 key |
 | `docs/deploy-runbook.md` | **本文档**(单一权威源,描述三脚本何时用) | — |
 
 ### 1.3 文件加载优先级(必须理解)
@@ -75,6 +76,37 @@ docker compose up 时,容器内环境变量叠加顺序(高 → 低):
 ```
 
 > 详见 `src/_env.py` 的 `_candidate_paths()` 和 `docker-compose.yml` 的 `env_file:`。
+
+### 1.4 模板与实例文件(必须理解)
+
+本项目把 **env 模板**和 **env 实例**严格分开:
+
+| 类型 | 文件 | 是否进 git | 谁负责更新 | 说明 |
+|---|---|---|---|---|
+| **模板** | `.env.example` | ✅ 进 git | 代码仓库维护 | 共享配置的key清单,任何环境通用 |
+| **模板** | `docker/env.docker.local.example` | ✅ 进 git | 代码仓库维护 | Docker 预发环境的key清单 |
+| **模板** | `docker/env.prod.local.example` | ✅ 进 git | 代码仓库维护 | 生产环境的key清单 |
+| **实例** | `.env` | ❌ gitignore | 每个环境手动维护 | 真实 API Key / SECRET / 密码 |
+| **实例** | `docker/env.docker.local` | ❌ gitignore | 每个环境手动维护 | 预发真实配置 |
+| **实例** | `docker/env.prod.local` | ❌ gitignore | 每个环境手动维护 | 生产真实配置 |
+
+**关键规则(违反必踩坑)**:
+
+1. `git pull` **只更新模板**,不会动实例文件。
+2. 当模板新增/修改 key 时,实例文件必须**手动同步**,否则部署会退回到代码默认值,甚至报错。
+3. 首次部署:从模板复制实例,然后填真实值。
+4. 后续迭代:每次 `git pull` 后,先跑 `bash scripts/check-env-sync.sh` 检查实例是否缺 key,再执行部署脚本。
+5. 不要把实例文件提交到 git;`.gitignore` 已保护,但请人工确认。
+
+**env 同步检查命令(部署前必跑)**:
+
+```bash
+cd /opt/fast_info
+bash scripts/check-env-sync.sh
+```
+
+- 全绿 ✅:实例包含模板全部 key,可以部署。
+- 黄/红 ❌:实例缺少 key,按提示把缺失 key 从模板复制到实例并填值,再重新检查。
 
 ---
 
@@ -321,15 +353,46 @@ FASTINFO_ADMIN_PASSWORD=admin@2026
 > 📌 注意:`docker/env.prod.local` **覆盖** `.env` 里的同名 key,所以 admin 密码实际生效优先级是:`env.prod.local` > `.env`。**若用环境变量覆盖**,得直接改 `env.prod.local` 的 `FASTINFO_ADMIN_PASSWORD`。
 > ⚠️ 首次部署成功后,请立刻用 admin 登录并修改密码。
 
+### 3.3.4 [Agent] 部署前 env 同步检查(**必须**,防止模板更新后实例缺 key)
+
+**每次 `git pull` 后、执行 `deploy-prod.sh` 前**,必须跑同步检查:
+
+```bash
+cd /opt/fast_info
+bash scripts/check-env-sync.sh prod
+```
+
+**通过标准**:输出全绿 ✅,无缺失 key。
+
+**如果提示缺失 key**:
+
+```bash
+# 例:提示 env.prod.local 缺少 FASTINFO_ADMIN_PASSWORD
+# 1. 打开模板,看默认值和注释
+nano docker/env.prod.local.example
+
+# 2. 把缺失 key 复制到实例,并填入真实值
+nano docker/env.prod.local
+```
+
+**为什么不能跳过**:模板文件(`*.example`)会随代码更新,但实例文件(`.local`)被 git 忽略,`git pull` 不会自动同步。实例缺 key 时,程序会退回到代码默认值,导致类似"admin 不存在"这类问题。
+
 ### 3.4 [Agent] 启动服务(5-15 min,build 占大头)
+
+**必须走 `scripts/deploy-prod.sh`**,不要直接 `docker compose up`:
 
 ```bash
 cd /opt/fast_info
 
-# 3.4.1 一次 build + up
-docker compose up -d --build
+# 3.4.1 一键部署(内部包含 env 检查 / build / up / admin 初始化 / 健康检查)
+bash scripts/deploy-prod.sh
+```
 
-# 3.4.2 看启动情况
+**如果只想本地手动调试用**:
+
+```bash
+# 3.4.2 手动 build + up(不推荐生产使用,会跳过 admin 初始化和 env 同步检查)
+docker compose up -d --build
 sleep 10
 docker compose ps
 ```

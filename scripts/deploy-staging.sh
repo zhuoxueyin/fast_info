@@ -33,6 +33,15 @@ grep -q "^MMX_API_KEY=.\+" .env || {
   exit 1
 }
 
+# 检查 env 模板与实例是否同步
+log "   检查 env 模板与实例同步..."
+if ! bash scripts/check-env-sync.sh > /tmp/fastinfo-env-sync.log 2>&1; then
+  err "env 文件与模板不同步"
+  cat /tmp/fastinfo-env-sync.log
+  exit 1
+fi
+log "   ✅ env 同步检查通过"
+
 log "   ✅ 全部通过"
 
 # === 1. 清理旧容器(保留数据卷) ===
