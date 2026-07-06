@@ -226,13 +226,24 @@ DEFAULT_BANNER = {
 
 
 def get_banner() -> dict:
-    """获取 banner 配置,不存在则预置默认"""
+    """获取 banner 配置,不存在则预置默认(幂等:支持并发首次启动)"""
     db = get_db()
     doc = db["banner_config"].find_one({"_id": "default"})
     if not doc:
         doc = dict(DEFAULT_BANNER)
         doc["updated_at"] = datetime.now(timezone.utc)
-        db["banner_config"].insert_one(doc)
+        # 并发启动时多个容器可能同时到这里:
+        # 用 update_one(upsert=True) 替代 insert_one,
+        # 避免 E11000 duplicate key error 导致 entrypoint 异常退出。
+        try:
+            db["banner_config"].update_one(
+                {"_id": "default"},
+                {"$setOnInsert": doc},
+                upsert=True,
+            )
+        except Exception:
+            # 兜底:即便 upsert 失败,也让函数返回现存文档,不阻断 bootstrap
+            doc = db["banner_config"].find_one({"_id": "default"}) or doc
     return _serialize_datetimes(_strip_oid(doc))
 
 
