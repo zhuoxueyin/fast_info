@@ -262,7 +262,7 @@ cd /opt/fast_info
 
 # 3.3.1 复制 env 模板
 cp .env.example .env
-cp docker/env.docker.local.example docker/env.docker.local
+cp docker/env.prod.local.example docker/env.prod.local
 ```
 
 **3.3.2 [User 必须]** 编辑 `.env`,填这 3 个值(其它不动):
@@ -294,12 +294,12 @@ grep -E "^MMX_API_KEY|^FASTINFO_SECRET|^FASTINFO_ADMIN_PASSWORD" /opt/fast_info/
 # 三行非空
 ```
 
-**3.3.3 [Agent 可以]** `docker/env.docker.local` 一律用默认值,不需改:
+**3.3.3 [Agent 可以]** `docker/env.prod.local` 一律用默认值,不需改(首次部署后请修改默认 admin 密码):
 
 ```ini
 # 默认值已经正确(端口 18080/18000,服务名 mongo/redis)
 MONGO_URL=mongodb://mongo:27017
-MONGO_DB=fastinfo_docker
+MONGO_DB=fastinfo_prod
 REDIS_URL=redis://redis:6379
 
 # ---------- 应用标识 ----------
@@ -318,7 +318,8 @@ FASTINFO_ADMIN_USERNAME=admin
 FASTINFO_ADMIN_PASSWORD=admin@2026
 ```
 
-> 📌 注意:`docker/env.docker.local` **覆盖** `.env` 里的同名 key,所以 admin 密码实际生效优先级是:`env.docker.local` > `.env`。**若用环境变量覆盖**,得直接改 `env.docker.local` 的 `FASTINFO_ADMIN_PASSWORD`。
+> 📌 注意:`docker/env.prod.local` **覆盖** `.env` 里的同名 key,所以 admin 密码实际生效优先级是:`env.prod.local` > `.env`。**若用环境变量覆盖**,得直接改 `env.prod.local` 的 `FASTINFO_ADMIN_PASSWORD`。
+> ⚠️ 首次部署成功后,请立刻用 admin 登录并修改密码。
 
 ### 3.4 [Agent] 启动服务(5-15 min,build 占大头)
 
