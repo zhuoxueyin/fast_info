@@ -19,27 +19,35 @@ const routes: RouteRecordRaw[] = [
   { path: '/settings', redirect: '/me/settings' },
   { path: '/topic/:tid', component: () => import('@/pages/TopicDetail.vue'), name: 'topic-detail', props: true },
   { path: '/topics', component: () => import('@/pages/TopicsPage.vue'), name: 'topics', meta: { auth: true } },
-  // Admin（保留桌面版,不在 mobile 适配范围内）
+  // Admin
   { path: '/admin', component: () => import('@/pages/admin/AdminHome.vue'), name: 'admin', meta: { auth: true, admin: true } },
   { path: '/admin/monitoring', component: () => import('@/pages/admin/MonitoringPage.vue'), name: 'admin-monitoring', meta: { auth: true, admin: true } },
   { path: '/admin/tasks', component: () => import('@/pages/admin/TasksPage.vue'), name: 'admin-tasks', meta: { auth: true, admin: true } },
   { path: '/admin/sources', component: () => import('@/pages/admin/SourcesPage.vue'), name: 'admin-sources', meta: { auth: true, admin: true } },
   { path: '/admin/banner', component: () => import('@/pages/admin/BannerConfigPage.vue'), name: 'admin-banner', meta: { auth: true, admin: true } },
 
-  // ============ Mobile /m/* 路由 ============
-  { path: '/m', component: () => import('@/pages/m/MobileLayout.vue') },
-  { path: '/m/hot', component: () => import('@/pages/m/MobileHot.vue') },
-  { path: '/m/search', component: () => import('@/pages/m/MobileSearch.vue') },
-  { path: '/m/items/:id', component: () => import('@/pages/m/MobileItem.vue'), props: true },
-  { path: '/m/topics', component: () => import('@/pages/m/MobileTopicsPage.vue'), meta: { auth: true } },
-  { path: '/m/topic/:tid', component: () => import('@/pages/m/MobileTopicDetail.vue'), props: true },
-  { path: '/m/me', component: () => import('@/pages/m/MobileMe.vue'), meta: { auth: true } },
-  { path: '/m/me/inbox', component: () => import('@/pages/m/MobileInbox.vue'), meta: { auth: true } },
-  { path: '/m/me/subs', component: () => import('@/pages/m/MobileSubs.vue'), meta: { auth: true } },
-  { path: '/m/me/settings', component: () => import('@/pages/m/MobileSettings.vue'), meta: { auth: true } },
-  { path: '/m/subs/new', component: () => import('@/pages/m/MobileNewSub.vue'), meta: { auth: true } },
-  { path: '/m/subs/edit/:id', component: () => import('@/pages/m/MobileNewSub.vue'), meta: { auth: true }, props: true },
-  { path: '/m/login', component: () => import('@/pages/m/MobileLogin.vue') },
+  // ============ Mobile 嵌套路由 ============
+  // MobileLayout 是父路由,所有 mobile 页面都是它的 children
+  // 这样底 tab + 顶 header 持久化,只切换 router-view 内容
+  {
+    path: '/m',
+    component: () => import('@/pages/m/MobileLayout.vue'),
+    children: [
+      { path: '', component: () => import('@/pages/m/MobileHome.vue'), name: 'm-home' },
+      { path: 'hot', component: () => import('@/pages/m/MobileHot.vue'), name: 'm-hot' },
+      { path: 'search', component: () => import('@/pages/m/MobileSearch.vue'), name: 'm-search' },
+      { path: 'topics', component: () => import('@/pages/m/MobileTopicsPage.vue'), name: 'm-topics', meta: { auth: true } },
+      { path: 'topic/:tid', component: () => import('@/pages/m/MobileTopicDetail.vue'), name: 'm-topic-detail', props: true },
+      { path: 'me', component: () => import('@/pages/m/MobileMe.vue'), name: 'm-me', meta: { auth: true } },
+      { path: 'me/inbox', component: () => import('@/pages/m/MobileInbox.vue'), name: 'm-inbox', meta: { auth: true } },
+      { path: 'me/subs', component: () => import('@/pages/m/MobileSubs.vue'), name: 'm-subs', meta: { auth: true } },
+      { path: 'me/settings', component: () => import('@/pages/m/MobileSettings.vue'), name: 'm-settings', meta: { auth: true } },
+      { path: 'subs/new', component: () => import('@/pages/m/MobileNewSub.vue'), name: 'm-sub-new', meta: { auth: true } },
+      { path: 'subs/edit/:id', component: () => import('@/pages/m/MobileNewSub.vue'), name: 'm-sub-edit', meta: { auth: true }, props: true },
+      { path: 'login', component: () => import('@/pages/m/MobileLogin.vue'), name: 'm-login' },
+      { path: 'items/:id', component: () => import('@/pages/m/MobileItem.vue'), name: 'm-item', props: true },
+    ],
+  },
 
   // ============ 404 ============
   { path: '/:pathMatch(.*)*', component: () => import('@/pages/NotFoundPage.vue'), name: '404' },
@@ -80,19 +88,26 @@ router.beforeEach((to, _from, next) => {
   if (device === 'mobile' && !to.path.startsWith('/m')) {
     // 手机访问 desktop 路径 → 重定向到 /m 对应路径
     const mobilePath = to.path === '/' ? '/m' : `/m${to.path}`
-    // 保留 query / hash
-    return next({ path: mobilePath, query: to.query, hash: to.hash, replace: true })
+    // 保留 query / hash(过滤掉 desktop=1)
+    const { desktop: _, ...restQuery } = to.query as any
+    return next({ path: mobilePath, query: restQuery, hash: to.hash, replace: true })
   }
 
   if (device === 'desktop' && to.path.startsWith('/m')) {
     // 桌面访问 /m/* 路径 → 跳回 desktop 版本
     let desktopPath = to.path.replace(/^\/m/, '') || '/'
-    // 处理特殊映射:/m/login → /login; /m/me/* → /me/*; /m/subs/* → /subs/*
-    desktopPath = desktopPath.replace(/^\/me\/inbox/, '/me/inbox')
-    desktopPath = desktopPath.replace(/^\/me\/subs/, '/me/subs')
-    desktopPath = desktopPath.replace(/^\/me\/settings/, '/me/settings')
-    desktopPath = desktopPath.replace(/^\/subs\/new/, '/subs/new')
-    desktopPath = desktopPath.replace(/^\/subs\/edit\//, '/subs/edit/')
+    // 处理特殊映射 (DesktopLayout 路由结构):
+    // /m/me/inbox    → /me/inbox
+    // /m/me/subs     → /me/subs
+    // /m/me/settings → /me/settings
+    // /m/me          → /me
+    // /m/subs/new    → /subs/new
+    // /m/subs/edit/X → /subs/edit/X
+    // /m/items/X     → /items/X
+    // /m/topic/X     → /topic/X
+    // /m/topics      → /topics
+    // /m/login       → /login
+    // (上面规则由 .replace 正则覆盖,不需要额外处理)
     return next({ path: desktopPath, query: to.query, hash: to.hash, replace: true })
   }
 
