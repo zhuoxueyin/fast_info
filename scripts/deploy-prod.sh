@@ -42,6 +42,28 @@ else
 fi
 grep -q "^MMX_API_KEY=.\+" .env || { err ".env 里 MMX_API_KEY 没填,服务起来 LLM 调用也会失败"; exit 1; }
 
+# 检查 env 模板与实例是否同步(防止 .example 更新后 .local 缺 key)
+log "   检查 env 模板与实例同步..."
+if ! bash scripts/check-env-sync.sh dotenv > /tmp/fastinfo-env-sync.log 2>&1; then
+  err ".env 与 .env.example 不同步"
+  cat /tmp/fastinfo-env-sync.log
+  exit 1
+fi
+if [ -f docker/env.prod.local ]; then
+  if ! bash scripts/check-env-sync.sh prod > /tmp/fastinfo-env-sync.log 2>&1; then
+    err "docker/env.prod.local 与模板不同步"
+    cat /tmp/fastinfo-env-sync.log
+    exit 1
+  fi
+elif [ -f docker/env.docker.local ]; then
+  if ! bash scripts/check-env-sync.sh docker > /tmp/fastinfo-env-sync.log 2>&1; then
+    err "docker/env.docker.local 与模板不同步"
+    cat /tmp/fastinfo-env-sync.log
+    exit 1
+  fi
+fi
+log "   ✅ env 同步检查通过"
+
 # 将 .env(共享配置)和最终选用的 env_file(环境差异)导入当前 shell,
 # 方便部署脚本读取 FASTINFO_ADMIN_PASSWORD 等变量
 if [ -f .env ]; then
