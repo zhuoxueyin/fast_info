@@ -61,6 +61,8 @@
 | `scripts/deploy-staging.sh` | S 预发布环境拉起 | 本机(完整 6 服务,18080 端口) |
 | `scripts/deploy-prod.sh` | P 正式环境拉起/更新 | 云服务器(git pull + build + up + healthcheck) |
 | `scripts/check-env-sync.sh` | env 模板与实例同步检查 | 部署前手动跑,发现实例缺 key |
+| `scripts/build-helpers.sh` | 内存感知构建辅助函数 | 被 deploy-staging/deploy-prod source |
+| `scripts/build-low-memory.sh` | 低内存机器专用构建脚本 | 内存 <= 2 GB 时自动串行 + 限内存构建 |
 | `docs/deploy-runbook.md` | **本文档**(单一权威源,描述三脚本何时用) | — |
 
 ### 1.3 文件加载优先级(必须理解)
@@ -388,6 +390,24 @@ cd /opt/fast_info
 bash scripts/deploy-prod.sh
 ```
 
+**低内存服务器(<= 2 GB 内存)自动适配**:
+`deploy-prod.sh` / `deploy-staging.sh` 会在 build 前检测系统总内存。
+如果内存 <= 2048 MB，自动切换为低内存构建策略:
+
+- 串行构建 service(`COMPOSE_PARALLEL_LIMIT=1`)，避免多个服务同时构建抢内存
+- 单个构建容器内存限制在 1.8 GB(`--memory 1800m`)
+- 临时禁用 BuildKit(`DOCKER_BUILDKIT=0`)，因为 BuildKit 不支持 `--memory`
+- 优先构建 `api` → `web` → `ingest_daemon` → `subs_scheduler`
+
+你**不需要手动干预**；脚本会输出类似:
+
+```text
+LOW MEMORY DETECTED: 1832 MB <= 2048 MB
+Switching to low-memory build strategy (serial + memory-limited).
+```
+
+如果仍然 OOM，见 §5.7。
+
 **如果只想本地手动调试用**:
 
 ```bash
@@ -623,6 +643,46 @@ docker compose up -d
 
 数据卷(`mongo_data` `redis_data` `api_data`)在 `/var/lib/docker/volumes/`,**不要用 `docker compose down -v`**,会清空数据库。
 
+### 5.7 低内存机器 build 时 OOM
+
+**现象**:服务器内存 <= 2 GB，build 过程中进程被杀，`dmesg` 出现 `Out of memory: Killed process ...`。
+
+**原因**:前端构建(`vue-tsc + vite build`)内存峰值高，多个 service 并行构建时容易挤爆物理内存。
+
+**自动策略**:部署脚本已内置内存检测，<= 2 GB 时自动串行 + 限内存构建。如果还 OOM，手动加 swap:
+
+```bash
+# 临时加 2 GB swap(重启失效；要永久生效需写入 /etc/fstab)
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# 重新部署
+bash scripts/deploy-prod.sh
+```
+
+**手动单独构建 web(调试时用)**:
+
+```bash
+bash scripts/build-low-memory.sh web
+```
+
+**进阶：调整 Node 堆内存上限**:
+如果 1.8 GB 构建容器限制仍不够，可改 `docker/web.Dockerfile` 里的 `NODE_OPTIONS`:
+
+```dockerfile
+ENV NODE_OPTIONS="--max-old-space-size=1024"
+```
+
+或者干脆跳过类型检查以大幅降低内存：
+
+```dockerfile
+RUN npx vite build
+```
+
+代价是部署前不再做 TypeScript 类型检查，需要在本地/CI 单独跑 `npm run check`。
+
 ---
 
 ## 6. 日常运维速查(Agent 自助)
@@ -697,7 +757,7 @@ docker cp <container>:/tmp/backup.archive /opt/fast_info/backup/
 
 ## 9. 版本与衔接
 
-- **当前版本**:`deploy-runbook` v2.0(2026-07-04)
+- **当前版本**:`deploy-runbook` v2.1(2026-07-06)
 - **衔接**:`AGENTS.md §9.1` 的 DevOps Day 5-9 路线图中,本文档兑现了 Day 6-7 的目标(同机 docker 预发 + 服务器 docker 正式);Day 8 域名/HTTPS、Day 9 回滚演练 暂时不在本文档范围(用户当前不需要)
 - **未来扩展点**(本次不实现):
   - 加入 nginx HTTPS + Cloudflare(对应 ADR-015)
@@ -747,4 +807,4 @@ P 正式模式(后续迭代)
 
 ---
 
-*Last updated: 2026-07-04 · 配套 AGENTS.md §9.1*
+*Last updated: 2026-07-06 · 配套 AGENTS.md §9.1*
