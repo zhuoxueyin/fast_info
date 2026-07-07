@@ -1,12 +1,15 @@
 <template>
-  <component :is="layoutComponent">
-    <router-view />
-  </component>
+  <n-message-provider>
+    <component :is="layoutComponent">
+      <router-view />
+    </component>
+  </n-message-provider>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { NMessageProvider } from 'naive-ui'
 import DefaultLayout from '@/layouts/DefaultLayout.vue'
 import MobileLayout from '@/pages/m/MobileLayout.vue'
 
