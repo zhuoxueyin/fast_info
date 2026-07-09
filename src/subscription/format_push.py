@@ -209,7 +209,18 @@ def _strip_md(s: str) -> str:
 
 
 def inbox_url_for(site_base: str) -> str:
-    """返回用户在快信网站看到的 inbox 推送记录 URL"""
-    if not site_base:
-        site_base = "/me/inbox"
-    return site_base.rstrip("/") + "/me/inbox"
+    """推送消息底部「在网站查看」按钮的目标 URL。
+
+    使用 FASTINFO_SITE_BASE 作为站点入口。
+    - 默认不拼 /me/inbox(外链到示例域名/me/inbox 会失效)
+    - 若 site_base 已带 path,原样保留
+    - 空值兜底生产域名,避免飞书等渠道拿到相对路径打不开
+    """
+    base = (site_base or "").strip()
+    if not base:
+        base = "https://kemi-ai.cn"
+    # 已经是完整 URL 时,只规范尾部斜杠;不再强制 + /me/inbox
+    if base.startswith("http://") or base.startswith("https://"):
+        return base.rstrip("/") + "/"
+    # 相对路径兜底成生产站
+    return "https://kemi-ai.cn/"

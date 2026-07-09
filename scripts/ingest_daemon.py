@@ -207,7 +207,7 @@ async def run_due_sources(due_sources: list[str], args) -> dict:
     """按 due 源列表逐源跑,共用一条 task_run。"""
     import uuid
     from storage.mongo_writer import (
-        create_task_run_pending, update_task_run_finished,
+        create_task_run_pending, update_task_run_finished, get_db,
     )
 
     run_id = getattr(args, "run_id", None) or str(uuid.uuid4())
@@ -217,18 +217,34 @@ async def run_due_sources(due_sources: list[str], args) -> dict:
     started_at = datetime.now(timezone.utc)
     print(f"[{started_at.isoformat()}] ingest start (scheduler, due={len(due_sources)}) run_id={run_id} trigger={trigger}")
 
+    # API 层(admin 手动触发)可能已预写 status=running 占位,避免重复 insert
     try:
-        create_task_run_pending({
-            "run_id": run_id,
-            "started_at": started_at,
-            "trigger": trigger,
-            "operator": operator,
-            "limit": args.limit,
-            "mode": "scheduler",
-            "due_sources": due_sources,
-        })
+        db = get_db()
+        existing = db["task_runs"].find_one({"run_id": run_id})
+        if existing:
+            db["task_runs"].update_one(
+                {"run_id": run_id},
+                {"$set": {
+                    "status": "running",
+                    "mode": "scheduler",
+                    "due_sources": due_sources,
+                    "limit": getattr(args, "limit", 8),
+                    "trigger": trigger,
+                    "operator": operator,
+                }},
+            )
+        else:
+            create_task_run_pending({
+                "run_id": run_id,
+                "started_at": started_at,
+                "trigger": trigger,
+                "operator": operator,
+                "limit": args.limit,
+                "mode": "scheduler",
+                "due_sources": due_sources,
+            })
     except Exception as e:
-        print(f"  [warn] create_task_run_pending failed: {e}")
+        print(f"  [warn] create/update task_run pending failed: {e}")
 
     total_fetched = 0
     total_summarized = 0
@@ -254,6 +270,20 @@ async def run_due_sources(due_sources: list[str], args) -> dict:
             total_failed += 1
             per_source[sid] = {"fetched": 0, "summarized": 0, "errors": 1}
             warnings.append(f"{sid}: {type(e).__name__}: {str(e)[:100]}")
+        # 每源结束后写中间进度,避免前端轮询一直 items_*=0 误以为卡死
+        try:
+            get_db()["task_runs"].update_one(
+                {"run_id": run_id},
+                {"$set": {
+                    "items_fetched": total_fetched,
+                    "items_summarized": total_summarized,
+                    "items_failed": total_failed,
+                    "per_source": per_source,
+                    "warning": "; ".join(warnings) if warnings else "",
+                }},
+            )
+        except Exception:
+            pass
 
     finished_at = datetime.now(timezone.utc)
     final_status = "done"
@@ -261,6 +291,7 @@ async def run_due_sources(due_sources: list[str], args) -> dict:
         final_status = "failed"
     elif total_summarized > 0 and total_failed > 0:
         final_status = "partial"
+    warning = "; ".join(warnings) if warnings else ""
 
     try:
         update_task_run_finished(run_id, {
@@ -270,7 +301,7 @@ async def run_due_sources(due_sources: list[str], args) -> dict:
             "items_summarized": total_summarized,
             "items_failed": total_failed,
             "per_source": per_source,
-            "warning": "; ".join(warnings) if warnings else "",
+            "warning": warning,
         })
     except Exception as e:
         print(f"  [warn] update_task_run_finished failed: {e}")
@@ -282,6 +313,77 @@ async def run_due_sources(due_sources: list[str], args) -> dict:
         "summarized": total_summarized,
         "failed": total_failed,
         "sources_ran": len(due_sources),
+        "warning": warning,
+    }
+
+
+async def run_once(args) -> dict:
+    """手动触发一次抓取 — 给 API / 管理后台用。
+
+    Day 10.5 重构后旧版 run_once 被拆掉,但
+      POST /api/admin/ingest/run
+      POST /api/ingest/run
+    仍 `from scripts.ingest_daemon import run_once`。
+
+    语义:跑**所有 is_active 源**(手动触发不应只跑 due 源)。
+    返回字段兼容 IngestResponse:fetched / new / summarized / failed / warning。
+    """
+    from storage.source_config import list_sources
+
+    active = list_sources(active_only=True)
+    source_ids = [s["source_id"] for s in active if s.get("source_id")]
+
+    if not source_ids:
+        # source_config 空时兜底注册表,避免手动触发什么都不干
+        try:
+            from crawler.sources import RSS_SOURCES, KOL_SOURCES
+            source_ids = list(RSS_SOURCES.keys()) + list(KOL_SOURCES.keys())
+        except Exception:
+            source_ids = []
+
+    if not source_ids:
+        empty = {
+            "run_id": getattr(args, "run_id", None),
+            "status": "done",
+            "fetched": 0,
+            "new": 0,
+            "summarized": 0,
+            "failed": 0,
+            "sources_ran": 0,
+            "warning": "没有可抓取的启用源",
+        }
+        # 若 API 已预写 running 记录,收成 done
+        rid = empty["run_id"]
+        if rid:
+            try:
+                from storage.mongo_writer import update_task_run_finished
+                update_task_run_finished(rid, {
+                    "finished_at": datetime.now(timezone.utc),
+                    "status": "done",
+                    "items_fetched": 0,
+                    "items_summarized": 0,
+                    "items_failed": 0,
+                    "warning": empty["warning"],
+                })
+            except Exception:
+                pass
+        return empty
+
+    print(
+        f"[run_once] manual ingest sources={len(source_ids)} "
+        f"limit={getattr(args, 'limit', 8)} trigger={getattr(args, 'trigger', 'manual')}"
+    )
+    r = await run_due_sources(source_ids, args)
+    summarized = r.get("summarized", 0)
+    return {
+        "run_id": r.get("run_id"),
+        "status": r.get("status", "done"),
+        "fetched": r.get("fetched", 0),
+        "new": summarized,  # IngestResponse.new ≈ 成功入库摘要数
+        "summarized": summarized,
+        "failed": r.get("failed", 0),
+        "sources_ran": r.get("sources_ran", 0),
+        "warning": r.get("warning", "") or "",
     }
 
 
