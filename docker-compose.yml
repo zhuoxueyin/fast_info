@@ -103,6 +103,11 @@ services:
     ports:
       - "18080:80"                           # S-Web: 主机 18080 → 容器 80(本地无)
     restart: unless-stopped
+    # 运行时内存限制（构建时不生效）。低内存机器建议用 scripts/build-low-memory.sh 构建。
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # ============================================================
   # 后台 worker(默认随 api/web 一起拉起)

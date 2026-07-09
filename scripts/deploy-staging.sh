@@ -50,7 +50,10 @@ docker compose down --remove-orphans 2>/dev/null || true
 
 # === 2. build ===
 log "2/5 build 镜像(5-15 分钟,慢是预期)"
-docker compose build
+# 根据系统内存自动选择构建策略：低内存机器串行 + 限内存构建
+# shellcheck source=scripts/build-helpers.sh
+source scripts/build-helpers.sh
+build_with_memory_awareness
 log "   ✅ build 完成"
 
 # === 3. up ===
