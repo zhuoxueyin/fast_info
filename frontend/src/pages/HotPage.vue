@@ -152,59 +152,54 @@
         </aside>
 
         <!-- 右侧该分类榜单 -->
-        <div>
-          <div
-            v-for="c in categoriesData"
-            :key="c.category"
-            v-show="activeCat === c.category"
-          >
-            <div class="bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl p-4 mb-4 flex items-center gap-3">
-              <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-white/20 backdrop-blur">
-                <component :is="l1Icon(c.category)" :size="22" />
-              </span>
-              <div>
-                <h3 class="font-bold text-lg">{{ c.category }} 分类榜</h3>
-                <p class="text-xs text-white/80">最近 {{ hours }}h · 共 {{ c.total_in_window }} 条上榜</p>
-              </div>
-            </div>
-
-            <n-empty v-if="!c.items.length" description="该类目暂无上榜数据" />
-
-            <div v-if="c.items.length" class="space-y-2.5">
-              <router-link
-                v-for="(it, idx) in c.items"
-                :key="it.id"
-                :to="`/items/${it.id}`"
-                class="block bg-white rounded-xl border border-slate-200 hover:border-emerald-300 hover:shadow-md transition p-4"
-              >
-                <div class="flex items-start gap-3">
-                  <span
-                    class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center font-bold text-base"
-                    :class="idx < 3 ? rankBgSolid(idx) : 'bg-slate-100 text-slate-500'"
-                  >
-                    {{ idx + 1 }}
-                  </span>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2 mb-1">
-                      <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                        {{ it.category || '其他' }}
-                      </span>
-                      <span class="text-xs text-slate-400 truncate">{{ sourceLabel(it.source) }}</span>
-                      <span class="text-xs text-orange-500 ml-auto flex-shrink-0 font-medium">🔥 {{ fmtRel(it.relevance) }}</span>
-                    </div>
-                    <h4 class="text-sm font-semibold text-slate-900 leading-snug mb-1 line-clamp-2 hover:text-emerald-700" :title="it.title">
-                      {{ it.title }}
-                    </h4>
-                    <p v-if="it.summary" class="text-xs text-slate-500 leading-relaxed line-clamp-2" :title="it.summary">
-                      {{ it.summary }}
-                    </p>
-                    <div class="text-xs text-slate-400 mt-1.5">{{ timeLabel(it.published_at || it.fetched_at) }}</div>
-                  </div>
-                </div>
-              </router-link>
+        <div v-if="activeCategory" :key="activeCategory.category">
+          <div class="bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl p-4 mb-4 flex items-center gap-3">
+            <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-white/20 backdrop-blur">
+              <component :is="l1Icon(activeCategory.category)" :size="22" />
+            </span>
+            <div>
+              <h3 class="font-bold text-lg">{{ activeCategory.category }} 分类榜</h3>
+              <p class="text-xs text-white/80">最近 {{ hours }}h · 共 {{ activeCategory.total_in_window }} 条上榜</p>
             </div>
           </div>
+
+          <n-empty v-if="!activeCategory.items.length" description="该类目暂无上榜数据" />
+
+          <div v-if="activeCategory.items.length" class="space-y-2.5">
+            <router-link
+              v-for="(it, idx) in activeCategory.items"
+              :key="it.id"
+              :to="`/items/${it.id}`"
+              class="block bg-white rounded-xl border border-slate-200 hover:border-emerald-300 hover:shadow-md transition p-4"
+            >
+              <div class="flex items-start gap-3">
+                <span
+                  class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center font-bold text-base"
+                  :class="idx < 3 ? rankBgSolid(idx) : 'bg-slate-100 text-slate-500'"
+                >
+                  {{ idx + 1 }}
+                </span>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                      {{ it.category || '其他' }}
+                    </span>
+                    <span class="text-xs text-slate-400 truncate">{{ sourceLabel(it.source) }}</span>
+                    <span class="text-xs text-orange-500 ml-auto flex-shrink-0 font-medium">🔥 {{ fmtRel(it.relevance) }}</span>
+                  </div>
+                  <h4 class="text-sm font-semibold text-slate-900 leading-snug mb-1 line-clamp-2 hover:text-emerald-700" :title="it.title">
+                    {{ it.title }}
+                  </h4>
+                  <p v-if="it.summary" class="text-xs text-slate-500 leading-relaxed line-clamp-2" :title="it.summary">
+                    {{ it.summary }}
+                  </p>
+                  <div class="text-xs text-slate-400 mt-1.5">{{ timeLabel(it.published_at || it.fetched_at) }}</div>
+                </div>
+              </div>
+            </router-link>
+          </div>
         </div>
+        <n-empty v-else description="请选择左侧类目" />
       </div>
     </section>
   </div>
@@ -229,6 +224,9 @@ const activeCat = ref<string>('')
 const loadingOverall = ref(false)
 const loadingCats = ref(false)
 const loadingAll = computed(() => loadingOverall.value || loadingCats.value)
+const activeCategory = computed(() =>
+  categoriesData.value.find((c) => c.category === activeCat.value) || null,
+)
 
 // ===================== 常量 =====================
 const hourOptions = [
@@ -252,7 +250,7 @@ const l1Icon = (c: string): FunctionalComponent => l1IconMap[c] || Folder
 
 const SOURCE_MAP: Record<string, string> = {
   ithome: 'IT之家', '36kr': '36氪', sspai: '少数派', infoq: 'InfoQ',
-  qbitai: '量子位', ifanr: '爱范儿', huxiu: '虎嗅', douban: '豆瓣',
+  qbitai: '量子位', ifanr: '爱范儿', huxiu: '虎嗅', leiphone: '雷锋网', douban: '豆瓣',
   espn_soccer: 'ESPN足球', 'weibo:hot': '微博热搜', zhihu_hot: '知乎热榜',
   bilibili: 'B站', cls: '财联社', wallstreetcn: '华尔街见闻',
 }
@@ -308,8 +306,15 @@ async function loadCategories() {
       { query: { limit: 8, hours: hours.value, threshold: 0 } },
     )
     categoriesData.value = r.categories
-    if (!activeCat.value && r.categories.length) {
-      activeCat.value = r.categories[0].category
+    // 默认选中第一个有数据的类目；若当前 tab 在新数据里仍然有效且非空，则保留
+    if (r.categories.length) {
+      const currentValid = r.categories.find(
+        (c) => c.category === activeCat.value && (c.total_in_window || 0) > 0,
+      )
+      if (!currentValid) {
+        const firstWithData = r.categories.find((c) => (c.total_in_window || 0) > 0)
+        activeCat.value = firstWithData?.category || r.categories[0].category
+      }
     }
   } catch {
     categoriesData.value = []
