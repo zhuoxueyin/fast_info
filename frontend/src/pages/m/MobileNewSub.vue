@@ -240,7 +240,7 @@ async function onGenerate() {
   nlError.value = ''
   generating.value = true
   try {
-    const parsed = await parseSub({ nl_query: text })
+    const parsed = await parseSub(text)
     if (parsed?.title) form.value.title = parsed.title
     if (Array.isArray(parsed?.keywords)) keywordText.value = parsed.keywords.join(', ')
     if (Array.isArray(parsed?.categories_l1)) form.value.categories_l1 = parsed.categories_l1

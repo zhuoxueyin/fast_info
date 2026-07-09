@@ -111,9 +111,10 @@ def _check_process(name: str) -> dict:
     }
     if alive:
         return _ok(detail=f"PID {started_pid} 存活", latency=0, **extra)
+    script_name = "ingest_daemon.py" if name == "ingest" else "subs_scheduler.py"
     return _fail(detail=f"PID {started_pid or '?'} 已退出(daemon 未在跑)",
                  latency=0, **extra,
-                 hint=f"启动: .\\start.ps1 或 python scripts/{name}.py --interval 1800",
+                 hint=f"启动: python scripts/{script_name}",
                  )
 
 
@@ -192,10 +193,11 @@ def _check_processes_multi(names: list[str]) -> dict[str, dict]:
         if alive:
             out[name] = _ok(detail=f"PID {pid} 存活", latency=0, **extra)
         else:
+            script_name = "ingest_daemon.py" if name == "ingest" else "subs_scheduler.py"
             out[name] = _fail(
                 detail=f"PID {pid or '?'} 已退出(daemon 未在跑)",
                 latency=0, **extra,
-                hint=f"启动: python scripts/{name}.py",
+                hint=f"启动: python scripts/{script_name}",
             )
     return out
 
@@ -255,7 +257,7 @@ def _check_http_endpoint(url: str, label: str, timeout: float = 0.5) -> dict:
 def check_web() -> dict:
     """前端 Vue Web 健康检查。
 
-    优先级:FASTINFO_WEB_URL > 本地 vite dev (5173) > docker nginx (18080)。
+    优先级:FASTINFO_WEB_URL > FASTINFO_WEB_PORT > 本地 vite dev (5173) > docker nginx (18080/28080)。
     失败 = warn:web 不是强依赖,本地纯 CLI / API 也能跑。
     """
     explicit = os.environ.get("FASTINFO_WEB_URL")
@@ -263,12 +265,19 @@ def check_web() -> dict:
     if explicit:
         candidates.append(explicit)
     host = os.environ.get("FASTINFO_BIND_HOST", "127.0.0.1")
-    # vite dev (5173) / docker nginx (18080) / 自定义端口
+    web_port = os.environ.get("FASTINFO_WEB_PORT")
+    if web_port:
+        candidates.append(f"http://{host}:{web_port}/")
+    # vite dev (5173) / docker nginx 预发(18080) / docker nginx 测试(28080) / 自定义端口
     candidates.extend([
         f"http://{host}:5173/",
         f"http://{host}:18080/",
+        f"http://{host}:28080/",
         f"http://{host}:8080/",
     ])
+    # Docker 容器内部通过 compose service 名访问 web 容器
+    if os.environ.get("APP_ENV") == "docker":
+        candidates.insert(0, "http://web/")
     last_err = None
     for url in candidates:
         result = _check_http_endpoint(url, "Web", timeout=2.0)
@@ -284,7 +293,7 @@ def check_web() -> dict:
 def check_docs() -> dict:
     """文档站 VitePress 健康检查。
 
-    优先级:FASTINFO_DOCS_URL > 本地 vitepress dev (5174) > docker nginx (18080/docs/)。
+    优先级:FASTINFO_DOCS_URL > FASTINFO_WEB_PORT/docs/ > 本地 vitepress dev (5174) > docker nginx (18080/docs/ / 28080/docs/)。
     失败 = warn:docs 不影响主功能。
     """
     explicit = os.environ.get("FASTINFO_DOCS_URL")
@@ -292,10 +301,17 @@ def check_docs() -> dict:
     if explicit:
         candidates.append(explicit)
     host = os.environ.get("FASTINFO_BIND_HOST", "127.0.0.1")
+    web_port = os.environ.get("FASTINFO_WEB_PORT")
+    if web_port:
+        candidates.append(f"http://{host}:{web_port}/docs/")
     candidates.extend([
         f"http://{host}:5174/",
         f"http://{host}:18080/docs/",
+        f"http://{host}:28080/docs/",
     ])
+    # Docker 容器内部通过 compose service 名访问 web 容器
+    if os.environ.get("APP_ENV") == "docker":
+        candidates.insert(0, "http://web/docs/")
     last_err = None
     for url in candidates:
         result = _check_http_endpoint(url, "Docs", timeout=2.0)
@@ -307,11 +323,76 @@ def check_docs() -> dict:
     return last_err or _warn("Docs: 未尝试任何 endpoint")
 
 
+def _check_daemon_docker() -> dict:
+    """Docker 模式下 daemon 是独立容器,无法通过宿主机 PID 检查。
+
+    改通过 task_runs 最近运行时间来判断 daemon 是否真正在工作:
+      - 2h 内有运行          → ok
+      - 2h~24h 内有运行      → warn
+      - 超过 24h 无运行 / 无记录 → fail
+    """
+    t0 = time.monotonic()
+    try:
+        from storage.mongo_writer import get_db
+        db = get_db()
+        now_utc = datetime.now(timezone.utc)
+        recent = db["task_runs"].find_one(sort=[("started_at", -1)])
+        latency = int((time.monotonic() - t0) * 1000)
+        extra = {
+            "mode": "docker",
+            "ingest": _ok("Docker 模式:通过 task_runs 判断", mode="docker"),
+            "subs_scheduler": _ok("Docker 模式:通过 task_runs 判断", mode="docker"),
+        }
+        if not recent:
+            return _warn(
+                detail="Docker 模式:未找到 task_runs 记录(daemon 可能尚未跑过任务)",
+                latency=latency,
+                hint="请检查 docker compose ps 中 ingest_daemon / subs_scheduler 是否 healthy",
+                **extra,
+            )
+        started = _to_aware(recent.get("started_at"))
+        age_hr = (now_utc - started).total_seconds() / 3600.0 if started else None
+        extra["recent_run"] = recent.get("run_id")
+        extra["recent_run_started_at"] = started.isoformat() if started else None
+        extra["recent_run_age_hr"] = round(age_hr, 2) if age_hr is not None else None
+
+        if age_hr is None or age_hr > 24:
+            return _fail(
+                detail=f"Docker 模式:超过 24h 无任务运行(最近 {age_hr:.1f}h 前)",
+                latency=latency,
+                hint="请检查 ingest_daemon 容器日志: docker compose logs -f ingest_daemon",
+                **extra,
+            )
+        if age_hr > 2:
+            return _warn(
+                detail=f"Docker 模式:最近任务 {age_hr:.1f}h 前运行",
+                latency=latency,
+                hint="daemon 可能仍在启动中或调度间隔较长",
+                **extra,
+            )
+        return _ok(
+            detail=f"Docker 模式:daemon 健康,最近任务 {age_hr:.1f}h 前运行",
+            latency=latency,
+            **extra,
+        )
+    except Exception as e:
+        latency = int((time.monotonic() - t0) * 1000)
+        return _fail(
+            detail=f"Docker 模式:检查失败 {type(e).__name__}: {str(e)[:120]}",
+            latency=latency,
+            mode="docker",
+        )
+
+
 def check_daemon() -> dict:
     """聚合 ingest_daemon + subs_scheduler 的健康状态(Day 7 改:用户期望 daemon 一个卡片)
 
     Day 7 优化:用 _check_processes_multi 一次 ps 调用查两个进程(原 3s → 1.5s)
+    Docker 模式下改用 task_runs 时间判断,因为跨容器无法查 PID。
     """
+    if os.environ.get("APP_ENV") == "docker":
+        return _check_daemon_docker()
+
     t0 = time.monotonic()
     results = _check_processes_multi(["ingest", "scheduler"])
     ingest = results.get("ingest") or _fail("ingest check failed", latency=0)

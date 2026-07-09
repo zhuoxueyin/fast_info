@@ -80,7 +80,7 @@
           <div class="flex-1 text-sm text-slate-900">测试推送通知</div>
           <ChevronRight :size="16" class="text-slate-300" />
         </button>
-        <router-link to="/me/push-history" class="w-full p-3.5 flex items-center gap-3 active:bg-slate-50">
+        <router-link to="/m/me/push-history" class="w-full p-3.5 flex items-center gap-3 active:bg-slate-50">
           <History :size="16" class="text-slate-500" />
           <div class="flex-1 text-sm text-slate-900">推送历史</div>
           <ChevronRight :size="16" class="text-slate-300" />
@@ -103,11 +103,12 @@ import { ChevronLeft, ChevronRight, Bell, Monitor, Send, History, LogOut, Inbox,
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { setDeviceOverride, detectDevice } from '@/lib/device'
+import type { User } from '@/types/api'
 
 const router = useRouter()
 const auth = useAuthStore()
 
-const user = computed(() => auth.user || {})
+const user = computed<User>(() => auth.user || { id: '', username: '' })
 const initial = computed(() => (user.value.username || 'U')[0].toUpperCase())
 
 const channels = [

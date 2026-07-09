@@ -16,7 +16,6 @@
         <div class="flex-1"></div>
 
         <nav class="flex items-center gap-3 text-sm flex-shrink-0">
-          <a href="/docs/" target="_blank" class="text-slate-400 hover:text-slate-600 text-xs">📖 文档</a>
           <template v-if="auth.isLoggedIn">
             <router-link v-if="auth.isAdmin" to="/admin" class="text-amber-600 hover:text-amber-700">🔧 管理</router-link>
             <n-dropdown :options="userMenuOptions" @select="onUserMenu">
@@ -40,7 +39,6 @@
     <n-layout-footer class="bg-white border-t">
       <div class="max-w-[1280px] mx-auto px-6 py-4 text-center text-xs text-slate-500">
         <span class="font-semibold text-slate-700">fastInfo</span> · 个人化 AI 情报中枢 ·
-        <a href="/docs/" class="text-emerald-600 hover:underline" target="_blank">文档</a> ·
         <a href="/swagger" class="text-emerald-600 hover:underline" target="_blank">Swagger UI</a>
       </div>
     </n-layout-footer>
@@ -63,8 +61,11 @@ const userMenuOptions = [
 ]
 
 function onUserMenu(key: string) {
-  if (key === 'me') router.push('/me')
-  else if (key === 'logout') {
+  console.log('[DEBUG] user menu selected key:', key)
+  if (key === 'me') {
+    console.log('[DEBUG] navigating to route name: me')
+    router.push({ name: 'me' })
+  } else if (key === 'logout') {
     auth.logout()
     router.push('/')
   }

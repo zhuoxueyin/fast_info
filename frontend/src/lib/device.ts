@@ -18,7 +18,9 @@ export type DeviceType = 'mobile' | 'desktop'
 
 const STORAGE_KEY = 'fastinfo.device-override'
 
-/** 从 User-Agent 检测设备类型 */
+/** 从 User-Agent 检测设备类型
+ * 注意:iPad 现代 UA 不带 "iPad" 字样,靠 maxTouchPoints + macintosh 辅助
+ */
 export function detectFromUA(ua: string): DeviceType {
   if (!ua) return 'desktop'
   const lower = ua.toLowerCase()
@@ -26,12 +28,17 @@ export function detectFromUA(ua: string): DeviceType {
   if (/mobile|android|iphone|ipod|blackberry|iemobile|opera mini|webos/.test(lower)) {
     return 'mobile'
   }
-  // iPad 现代 UA 不带 "iPad" 字样,靠 maxTouchPoints 辅助
-  // (在调用方额外判断)
+  // iPad 现代 UA 伪装成 desktop,用 maxTouchPoints 识别
+  if (typeof navigator !== 'undefined' && /macintosh/.test(lower) && navigator.maxTouchPoints > 1) {
+    return 'mobile'
+  }
   return 'desktop'
 }
 
-/** 综合检测:UA + 触屏 + 屏幕宽度 */
+/** 综合检测:UA 优先 + 屏幕/触屏兜底
+ * 原则:UA 明确是 desktop 的设备,不再因窗口缩小或带触屏而被切到 mobile,
+ * 避免 PC 浏览器缩窗、触屏笔记本被误判为移动端。
+ */
 export function detectDevice(): DeviceType {
   if (typeof navigator === 'undefined') return 'desktop'
 
@@ -45,15 +52,17 @@ export function detectDevice(): DeviceType {
 
   const uaType = detectFromUA(navigator.userAgent || '')
 
-  // 触屏 + 小屏 = mobile
+  // UA 明确判断为 desktop:直接返回 desktop,不再受窗口大小/触屏影响
+  if (uaType === 'desktop') return 'desktop'
+
+  // UA 明确判断为 mobile:直接返回 mobile
+  if (uaType === 'mobile') return 'mobile'
+
+  // 未知 UA 兜底:触屏 + 小屏才算 mobile
   const touchPoints = navigator.maxTouchPoints || 0
   const screenW = typeof window !== 'undefined' ? window.innerWidth : 1024
   const isSmallScreen = screenW <= 768
-  const isTouch = touchPoints > 0
-
-  if (uaType === 'mobile') return 'mobile'
-  // iPad / 触屏小设备
-  if (isSmallScreen && isTouch) return 'mobile'
+  if (isSmallScreen && touchPoints > 0) return 'mobile'
   return 'desktop'
 }
 

@@ -190,13 +190,13 @@
                 <div class="text-lg font-bold">{{ traceData.summary.total_sources }}</div>
               </div>
             </div>
-            <div class="flex gap-3 mt-2 text-xs text-slate-500 flex-wrap">
-              <span>✅ 成功 {{ traceData.summary.ok_sources }}</span>
-              <span>❌ 失败 {{ traceData.summary.fail_sources }}</span>
-              <span>⚠️ 部分 {{ traceData.summary.partial_sources || 0 }}</span>
-              <span>⏸ 禁用 {{ traceData.summary.disabled_sources }}</span>
-              <span v-if="traceData.summary.skip_sources">🚫 未爬取 {{ traceData.summary.skip_sources }}</span>
-              <span>⏱ 总耗时 {{ (traceData.summary.total_duration_ms / 1000).toFixed(1) }}s</span>
+            <div class="flex gap-3 mt-2 text-xs flex-wrap">
+              <span class="text-emerald-600">✅ 成功 {{ traceData.summary.ok_sources }}</span>
+              <span class="text-amber-600">⚠️ 部分 {{ traceData.summary.partial_sources || 0 }}</span>
+              <span class="text-rose-600">❌ 失败 {{ traceData.summary.fail_sources }}</span>
+              <span class="text-slate-500">⏸ 禁用 {{ traceData.summary.disabled_sources }}</span>
+              <span class="text-sky-600">🕐 未到 {{ traceData.summary.not_due_sources || 0 }}</span>
+              <span class="text-slate-500">⏱ 总耗时 {{ (traceData.summary.total_duration_ms / 1000).toFixed(1) }}s</span>
             </div>
           </div>
 
@@ -415,18 +415,20 @@ function traceStatusClass(s: string) {
 
 function sourceRunBadgeClass(s: string) {
   if (s === 'ok') return 'bg-emerald-100 text-emerald-700'
+  if (s === 'partial') return 'bg-amber-100 text-amber-700'
   if (s === 'fail') return 'bg-rose-100 text-rose-700'
   if (s === 'disabled') return 'bg-slate-200 text-slate-500'
-  if (s === 'skip') return 'bg-slate-100 text-slate-400'
-  return 'bg-amber-100 text-amber-700'
+  if (s === 'not_due') return 'bg-sky-100 text-sky-600'
+  return 'bg-slate-100 text-slate-400'
 }
 
 function sourceRunBorderClass(s: string) {
   if (s === 'ok') return 'border-emerald-400'
+  if (s === 'partial') return 'border-amber-400'
   if (s === 'fail') return 'border-rose-400'
   if (s === 'disabled') return 'border-slate-300'
-  if (s === 'skip') return 'border-slate-200 border-dashed'
-  return 'border-amber-400'
+  if (s === 'not_due') return 'border-sky-300 border-dashed'
+  return 'border-slate-200 border-dashed'
 }
 
 function formatTime(t: string) {
@@ -484,10 +486,10 @@ const cols: DataTableColumns<any> = [
 
 // 源级状态映射
 const SR_TYPE: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
-  ok: 'success', fail: 'error', partial: 'warning', disabled: 'info', skip: 'default',
+  ok: 'success', fail: 'error', partial: 'warning', disabled: 'info', not_due: 'info',
 }
 const SR_LABEL: Record<string, string> = {
-  ok: '成功', fail: '失败', partial: '部分', disabled: '禁用', skip: '未爬取',
+  ok: '成功', fail: '失败', partial: '部分', disabled: '禁用', not_due: '未到',
 }
 
 async function loadAll() {

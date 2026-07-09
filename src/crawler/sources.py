@@ -18,8 +18,7 @@ RSS_SOURCES = {
     # ----- 科技 / AI -----
     "36kr":      ("36氪",       "https://36kr.com/feed"),
     # Day 11 修复:huxiu 官方 RSS 持续 timeout + 公共 RSSHub 镜像(rsshub.app/rssforever/injahow)全 403/404/503,
-    # 改走 leiphone 雷锋网(科技/AI 同类,内容更专业,实测 RSS 200 + 600KB+ feed)
-    "huxiu":     ("虎嗅",       "https://www.huxiu.com/rss/0.xml"),  # 历史源,目前 disabled,见 source_config.disabled_reason
+    # 已删除 huxiu,由 leiphone 雷锋网替代(科技/AI 同类,实测 RSS 200 + 600KB+ feed)
     "leiphone":  ("雷锋网",      "https://www.leiphone.com/feed"),
     "ifanr":     ("爱范儿",      "https://www.ifanr.com/feed"),
     "qbitai":    ("量子位",      "https://www.qbitai.com/feed"),
@@ -35,16 +34,14 @@ RSS_SOURCES = {
     "cls":       ("财联社",       "https://www.cls.cn/"),
 
     # ----- 体育 -----
-    "espn_soccer": ("ESPN Soccer", "https://www.espn.com/espn/rss/soccer/news"),
+    # ESPN Soccer RSS 已失效(202 empty),替换为新浪体育国际足球 RSS
+    "sina_sports_soccer": ("新浪体育-国际足球", "https://rss.sina.com.cn/sports/global/focus.xml"),
 
     # ----- 娱乐 -----
     # Day 6v2 修复:bilibili 旧 RSS 端点 empty feed,改走官方 JSON 排行 API (在 fetch_all 里专门路由)
     # web_location=333.934 是 B 站给站内跳转用的"白名单参数",绕过裸 API 风控
     "bilibili":  ("B站热门",     "https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all&web_location=333.934"),
     "douban":    ("豆瓣热门",    "https://www.douban.com/feed/review/movie"),
-
-    # ----- 汽车 -----
-    "autohome":  ("汽车之家",     "https://www.autohome.com.cn/rss/news.xml"),
 
     # ----- 热榜 (Day 6v2 新增) -----
     # zhihu_hot 走 RSSHub 镜像,补财经/科技话题;30 条/次
@@ -98,13 +95,12 @@ CATEGORY_LEGACY_MAP = {
 
 # 类目-默认映射(Day 5 用于 seed source_config 时填 l1)
 SOURCE_L1_DEFAULT = {
-    "36kr": "科技", "huxiu": "科技", "leiphone": "AI", "ifanr": "科技",
+    "36kr": "科技", "leiphone": "AI", "ifanr": "科技",
     "infoq": "科技", "sspai": "科技", "ithome": "科技",
     "qbitai": "AI",
     "wallstreetcn": "财经", "cls": "财经",
-    "espn_soccer": "体育",
+    "sina_sports_soccer": "体育",
     "bilibili": "娱乐", "douban": "娱乐",
-    "autohome": "汽车",
     "zhihu_hot": "科技",
     "weibo:1887344341": "财经", "weibo:1643971635": "其他",
     "weibo:hot": "其他",

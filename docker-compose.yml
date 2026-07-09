@@ -9,10 +9,10 @@
 #   - Docker 差异(env.docker.local): 容器内服务地址 / 端口
 #     复制 docker/env.docker.local.example 为 docker/env.docker.local
 #
-# 访问(预发环境,主机端口):
-#   Web:    http://127.0.0.1:18080   (Nginx 主入口,推荐)
-#   API:    http://127.0.0.1:18000   (直连 FastAPI,调试用)
-#   Docs:   http://127.0.0.1:18080/docs/
+# 访问(本机测试环境 fast_info_dev,主机端口):
+#   Web:    http://127.0.0.1:28080   (Nginx 主入口,推荐)
+#   API:    http://127.0.0.1:28000   (直连 FastAPI,调试用)
+#   Docs:   http://127.0.0.1:28080/docs/
 #
 # 本地开发端口对照见 docs/ports-分配方案.md
 
@@ -20,7 +20,7 @@ services:
   mongo:
     image: ${DOCKER_REGISTRY_PREFIX:-}mongo:8
     ports:
-      - "27018:27017"                          # S-Mongo: 主机 27018 → 容器 27017(本地 27017)
+      - "37018:27017"                          # Dev-Mongo: 主机 37018 → 容器 27017(避开正式 27018)
     volumes:
       - mongo_data:/data/db
     restart: unless-stopped
@@ -33,7 +33,7 @@ services:
   redis:
     image: ${DOCKER_REGISTRY_PREFIX:-}redis:7-alpine
     ports:
-      - "6380:6379"                           # S-Redis: 主机 6380 → 容器 6379(本地 6379)
+      - "7380:6379"                           # Dev-Redis: 主机 7380 → 容器 6379(避开正式 6380)
     volumes:
       - redis_data:/data
     command:
@@ -81,7 +81,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "18000:8000"                          # S-API: 主机 18000 → 容器 8000(本地 8000)
+      - "28000:8000"                          # Dev-API: 主机 28000 → 容器 8000(避开正式 18000)
     healthcheck:
       # 等 FastAPI /healthz 真正返 200,web 才能起来(防 DNS 解析竞态)
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3).status==200 else 1)"]
@@ -101,7 +101,7 @@ services:
       api:
         condition: service_healthy        # 必须等 api 健康后才起 nginx,否则 upstream "api" 解析失败导致容器崩溃重启
     ports:
-      - "18080:80"                           # S-Web: 主机 18080 → 容器 80(本地无)
+      - "28080:80"                           # Dev-Web: 主机 28080 → 容器 80(避开正式 18080)
     restart: unless-stopped
     # 运行时内存限制（构建时不生效）。低内存机器建议用 scripts/build-low-memory.sh 构建。
     deploy:
@@ -129,6 +129,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # 禁用 Dockerfile 中的 HTTP healthcheck(ingest_daemon 不监听端口)
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   subs_scheduler:
@@ -148,6 +151,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # 禁用 Dockerfile 中的 HTTP healthcheck(subs_scheduler 不监听端口)
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
 volumes:
