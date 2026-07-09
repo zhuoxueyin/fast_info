@@ -32,7 +32,8 @@
 
     <n-layout-content>
       <div class="max-w-[1280px] mx-auto px-6 py-6">
-        <router-view />
+        <!-- App.vue 通过 slot 传入 <router-view />,不要在这里再嵌一层 router-view -->
+        <slot />
       </div>
     </n-layout-content>
 

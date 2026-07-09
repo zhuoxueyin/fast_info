@@ -9,11 +9,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineComponent, h } from 'vue'
 import { useRoute } from 'vue-router'
 import { NConfigProvider, NMessageProvider } from 'naive-ui'
 import DefaultLayout from '@/layouts/DefaultLayout.vue'
-import MobileLayout from '@/pages/m/MobileLayout.vue'
 
 const route = useRoute()
 
@@ -26,16 +25,22 @@ const themeOverrides = {
   },
 }
 
-// 根据路由 meta.layout 决定 layout
-// mobile 路径以 /m 开头 → MobileLayout,否则 → DefaultLayout
+/** 透传壳:mobile 路由已自带 MobileLayout 父路由,App 层不再包一层避免双顶栏/双 tab */
+const PassthroughLayout = defineComponent({
+  name: 'PassthroughLayout',
+  setup(_, { slots }) {
+    return () => h('div', { class: 'app-passthrough' }, slots.default?.())
+  },
+})
+
+// Desktop → DefaultLayout(顶 nav)
+// Mobile  /m/* → Passthrough(由路由父组件 MobileLayout 负责顶/底栏)
+// 不要用 startsWith('/m'),否则 /me 会被误判
 const layoutComponent = computed(() => {
-  // 优先级 1: meta.layout
-  if (route.meta?.layout === 'mobile') return MobileLayout
+  if (route.meta?.layout === 'mobile') return PassthroughLayout
   if (route.meta?.layout === 'desktop') return DefaultLayout
-  // 优先级 2: 路径判断(兜底)
-  // 修正:不能用 startsWith('/m'),否则 /me /monitor 等会被误判为 mobile
   const isMobilePath = route.path === '/m' || route.path.startsWith('/m/')
-  if (isMobilePath) return MobileLayout
+  if (isMobilePath) return PassthroughLayout
   return DefaultLayout
 })
 </script>
