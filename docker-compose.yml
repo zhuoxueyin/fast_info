@@ -16,20 +16,40 @@
 #
 # 本地开发端口对照见 docs/ports-分配方案.md
 # 同机 dev 环境(fast_info_dev)请用独立目录 + 28080/28000 端口,勿改本文件。
+#
+# ⚠️ 生产 2C4G 约束:
+#   - 生产机只跑本 compose(prod),不要同机常驻 fast_info_dev
+#   - 各服务 mem_limit 已按 2C4G 预留系统+Caddy 余量(~1.5G)
+#   - web→api 依赖 Docker DNS 动态解析(见 docker/nginx/default.conf)
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
 
 services:
   mongo:
     image: ${DOCKER_REGISTRY_PREFIX:-}mongo:8
+    # 2C4G: 限制 WiredTiger 缓存,避免 mongo 默认吃掉大半内存
+    command:
+      - mongod
+      - --bind_ip_all
+      - --wiredTigerCacheSizeGB
+      - "0.5"
     ports:
       - "27018:27017"                          # S/P-Mongo: 主机 27018 → 容器 27017
     volumes:
       - mongo_data:/data/db
     restart: unless-stopped
+    mem_limit: 768m
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
       retries: 10
+      start_period: 20s
 
   redis:
     image: ${DOCKER_REGISTRY_PREFIX:-}redis:7-alpine
@@ -42,16 +62,18 @@ services:
       - --appendonly
       - "yes"
       - --maxmemory
-      - "256mb"
+      - "128mb"
       - --maxmemory-policy
       - "allkeys-lru"
       - --save
       - "60"
       - "1000"
     restart: unless-stopped
+    mem_limit: 192m
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      interval: 15s
       timeout: 3s
       retries: 5
 
@@ -86,11 +108,13 @@ services:
     healthcheck:
       # 等 FastAPI /healthz 真正返 200,web 才能起来(防 DNS 解析竞态)
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3).status==200 else 1)"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
       retries: 6
-      start_period: 15s
+      start_period: 20s
     restart: unless-stopped
+    mem_limit: 512m
+    logging: *default-logging
 
   web:
     build:
@@ -98,17 +122,24 @@ services:
       dockerfile: docker/web.Dockerfile
       args:
         DOCKER_REGISTRY_PREFIX: ${DOCKER_REGISTRY_PREFIX:-}
+    # 运行时挂载 nginx conf,避免 recreate 回退到镜像内旧 conf(动态 DNS 丢失)
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       api:
-        condition: service_healthy        # 必须等 api 健康后才起 nginx,否则 upstream "api" 解析失败导致容器崩溃重启
+        condition: service_healthy        # 必须等 api 健康后才起 nginx
     ports:
       - "18080:80"                           # S/P-Web: 主机 18080 → 容器 80
     restart: unless-stopped
-    # 运行时内存限制（构建时不生效）。低内存机器建议用 scripts/build-low-memory.sh 构建。
-    deploy:
-      resources:
-        limits:
-          memory: 512M
+    mem_limit: 128m
+    logging: *default-logging
+    # 经本容器 Nginx 反代打 /healthz;api IP 变更后动态 resolver 应仍 200
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ============================================================
   # 后台 worker(默认随 api/web 一起拉起)
@@ -134,6 +165,8 @@ services:
     healthcheck:
       disable: true
     restart: unless-stopped
+    mem_limit: 384m
+    logging: *default-logging
 
   subs_scheduler:
     build:
@@ -156,6 +189,8 @@ services:
     healthcheck:
       disable: true
     restart: unless-stopped
+    mem_limit: 256m
+    logging: *default-logging
 
 volumes:
   mongo_data:
