@@ -19,6 +19,7 @@ def _user_to_view(u: dict) -> UserView:
         nickname=u.get("nickname"),
         avatar_url=u.get("avatar_url"),
         feishu_webhook=u.get("feishu_webhook"),
+        feishu_webhooks=u.get("feishu_webhooks"),
         wechat_webhook=u.get("wechat_webhook"),
         webhook_url=u.get("webhook_url"),
     )

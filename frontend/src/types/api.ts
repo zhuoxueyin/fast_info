@@ -122,6 +122,7 @@ export interface User {
   nickname?: string | null         // Day 7:用户昵称,空 → 显示 username
   avatar_url?: string | null       // Day 7:头像 URL,空 → 显示首字母
   feishu_webhook?: string
+  feishu_webhooks?: Array<{ name: string; webhook: string }>  // Day 12:多飞书群机器人
   wechat_webhook?: string
   webhook_url?: string
   created_at?: string

@@ -162,26 +162,36 @@
     <section class="bg-white rounded-xl border border-slate-200 p-6">
       <h2 class="text-lg font-semibold text-slate-900 mb-4">⚙️ 推送设置</h2>
 
-      <!-- 飞书群机器人 (Webhook) -->
+      <!-- 飞书群机器人 (Webhook):支持多群 -->
       <div class="mb-6 p-4 bg-slate-50 rounded-lg">
         <h3 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
           🤖 飞书群机器人
-          <n-tag v-if="setting.feishu_webhook" type="success" size="small" :bordered="false">✓ 已配置</n-tag>
+          <n-tag v-if="setting.feishu_webhooks.length" type="success" size="small" :bordered="false">
+            ✓ 已配置 {{ setting.feishu_webhooks.length }} 个群
+          </n-tag>
           <n-tag v-else size="small" :bordered="false">未配置</n-tag>
         </h3>
         <p class="text-xs text-slate-500 mb-3">
-          在飞书群中添加「自定义机器人」，获取 Webhook 地址后填入下方。
+          在飞书群中添加「自定义机器人」，获取 Webhook 地址后填入下方；可添加多个群同时推送。
         </p>
-        <n-form-item label="Webhook 地址">
-          <n-input
-            v-model:value="setting.feishu_webhook"
-            placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
-          />
-        </n-form-item>
+        <div class="space-y-2 mb-3">
+          <div
+            v-for="(hook, idx) in setting.feishu_webhooks"
+            :key="idx"
+            class="flex items-start gap-2 p-3 bg-white rounded-lg border border-slate-200"
+          >
+            <div class="flex-1 space-y-2">
+              <n-input v-model:value="hook.name" placeholder="群名称" size="small" />
+              <n-input v-model:value="hook.webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx" size="small" />
+            </div>
+            <n-button size="tiny" type="error" ghost @click="removeFeishuHook(idx)">删除</n-button>
+          </div>
+        </div>
+        <n-button size="small" class="mb-3" @click="addFeishuHook">➕ 添加群</n-button>
         <div class="flex gap-2 mt-2">
           <n-button
             size="small"
-            :disabled="!setting.feishu_webhook"
+            :disabled="!setting.feishu_webhooks.some(h => !!h.webhook)"
             :loading="testingFeishu"
             @click="testChannel('feishu')"
           >
@@ -397,14 +407,38 @@ type BackendChannel = {
   required_fields: string[]
   available: boolean
 }
+
+type FeishuHook = {
+  name: string
+  webhook: string
+}
+
 const setting = ref({
-  feishu_webhook: '',
+  feishu_webhooks: [] as FeishuHook[],
   channels: ['inbox'] as string[],
 })
 const availableChannels = ref<BackendChannel[]>([])
 const settingsLoading = ref(false)
 const savingSettings = ref(false)
 const testingFeishu = ref(false)
+
+function normalizeFeishuHooks(me: any): FeishuHook[] {
+  if (Array.isArray(me?.feishu_webhooks) && me.feishu_webhooks.length) {
+    return me.feishu_webhooks.filter((h: any) => h?.webhook)
+  }
+  if (me?.feishu_webhook) {
+    return [{ name: '默认群', webhook: me.feishu_webhook }]
+  }
+  return []
+}
+
+function addFeishuHook() {
+  setting.value.feishu_webhooks.push({ name: '', webhook: '' })
+}
+
+function removeFeishuHook(idx: number) {
+  setting.value.feishu_webhooks.splice(idx, 1)
+}
 
 async function loadSettings() {
   settingsLoading.value = true
@@ -414,7 +448,7 @@ async function loadSettings() {
       api<any>('/settings'),
     ])
     availableChannels.value = (cs.channels || []).filter(c => c.available)
-    setting.value.feishu_webhook = me.feishu_webhook || ''
+    setting.value.feishu_webhooks = normalizeFeishuHooks(me)
     setting.value.channels = me.channels || ['inbox']
   } catch (e: any) {
     msg.error('加载设置失败: ' + (e?.data?.detail || ''))
@@ -427,7 +461,7 @@ async function saveSettings() {
   savingSettings.value = true
   try {
     const body: Record<string, any> = {
-      feishu_webhook: setting.value.feishu_webhook,
+      feishu_webhooks: setting.value.feishu_webhooks.filter(h => !!h.webhook),
       default_channels: setting.value.channels,
     }
     const r = await api<any>('/settings', { method: 'PUT', body })
@@ -447,14 +481,14 @@ async function testChannel(name: string) {
   if (name === 'feishu') testingFeishu.value = true
   try {
     const body: Record<string, any> = {
-      feishu_webhook: setting.value.feishu_webhook,
+      feishu_webhooks: setting.value.feishu_webhooks.filter(h => !!h.webhook),
       default_channels: setting.value.channels,
     }
     await api<any>('/settings', { method: 'PUT', body })
 
     const r = await api<any>('/notifier/test', { method: 'POST', body: { channel: name } })
     if (r.ok) {
-      msg.success(`飞书群机器人 测试通过`)
+      msg.success(`飞书群机器人 测试通过: ${r.message || ''}`)
     } else {
       msg.error(`测试失败: ${r.message || '请检查配置'}`)
     }

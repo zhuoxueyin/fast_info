@@ -19,7 +19,11 @@ def _test_content() -> str:
 
 
 def test_channel(name: str, user: Optional[dict] = None, item: Optional[dict] = None) -> dict:
-    """测试一个渠道,返回 {ok, message}"""
+    """测试一个渠道,返回 {ok, message}。
+
+    飞书支持多群:会测试所有已配置群机器人,任一成功即算成功,
+    并在 message 里汇总每个群的名称和状态。
+    """
     user = user or {
         "username": "test_user",
         "email": os.environ.get("TEST_EMAIL", ""),
@@ -42,8 +46,16 @@ def test_channel(name: str, user: Optional[dict] = None, item: Optional[dict] = 
         return {"ok": False, "message": f"未知渠道 '{name}',可选:{available_channels()}"}
 
     try:
-        ok = n.send(user, _test_subject(), _test_content(), [item])
-        return {"ok": ok, "message": "发送成功" if ok else "发送失败(看 stdout)"}
+        result = n.send(user, _test_subject(), _test_content(), [item])
+        if isinstance(result, dict):
+            ok = bool(result.get("ok"))
+            targets = result.get("targets")
+            if targets:
+                # 多目标汇总,如飞书多群
+                parts = [f"{t.get('name', '群')}: {'OK' if t.get('ok') else 'FAIL'}" for t in targets]
+                return {"ok": ok, "message": "; ".join(parts)}
+            return {"ok": ok, "message": "发送成功" if ok else (result.get("error") or "发送失败")}
+        return {"ok": bool(result), "message": "发送成功" if result else "发送失败"}
     except Exception as e:
         return {"ok": False, "message": f"{type(e).__name__}: {str(e)[:200]}"}
 

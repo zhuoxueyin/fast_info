@@ -44,9 +44,35 @@
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
       <h3 class="font-semibold mb-4">🤖 机器人 Webhook</h3>
       <div class="space-y-4">
-        <n-form-item label="飞书群机器人 Webhook">
-          <n-input v-model:value="form.feishu_webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx" />
-        </n-form-item>
+        <!-- 飞书群机器人:支持多群 -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium">飞书群机器人</label>
+            <n-button size="tiny" @click="addFeishuHook">➕ 添加群</n-button>
+          </div>
+          <div
+            v-for="(hook, idx) in form.feishu_webhooks"
+            :key="idx"
+            class="flex items-start gap-2 mb-2 p-3 bg-slate-50 rounded-lg"
+          >
+            <div class="flex-1 space-y-2">
+              <n-input
+                v-model:value="hook.name"
+                placeholder="群名称(如: 技术早报群)"
+                size="small"
+              />
+              <n-input
+                v-model:value="hook.webhook"
+                placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+                size="small"
+              />
+            </div>
+            <n-button size="tiny" type="error" ghost @click="removeFeishuHook(idx)">删除</n-button>
+          </div>
+          <p v-if="!form.feishu_webhooks.length" class="text-xs text-slate-400">
+            暂无飞书群机器人,点击上方按钮添加。
+          </p>
+        </div>
         <n-form-item label="企业微信机器人 Webhook">
           <n-input v-model:value="form.wechat_webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" />
         </n-form-item>
@@ -103,18 +129,32 @@ type PushChannel = {
   available: boolean
 }
 
+type FeishuHook = {
+  name: string
+  webhook: string
+}
+
 const msg = useMessage()
 const channels = ref<PushChannel[]>([])        // 渠道总览表(全)
 const availableChannels = ref<PushChannel[]>([])  // 仅 available=true,默认渠道勾选用
 const form = ref({
   email: '', smtp_host: 'smtp.qq.com', smtp_port: 465,
   smtp_user: '', smtp_pass: '',
-  feishu_webhook: '', wechat_webhook: '', webhook_url: '',
+  feishu_webhooks: [] as FeishuHook[],
+  wechat_webhook: '', webhook_url: '',
   channels: ['inbox'] as string[],
 })
 const loading = ref(false)
 const saving = ref(false)
 const testing = ref<string | null>(null)
+
+function addFeishuHook() {
+  form.value.feishu_webhooks.push({ name: '', webhook: '' })
+}
+
+function removeFeishuHook(idx: number) {
+  form.value.feishu_webhooks.splice(idx, 1)
+}
 
 const channelCols: DataTableColumns<PushChannel> = [
   { title: '渠道', key: 'label', width: 150 },
@@ -142,10 +182,21 @@ const channelCols: DataTableColumns<PushChannel> = [
 function isConfigured(name: string): boolean {
   if (name === 'inbox') return true
   if (name === 'email') return !!form.value.email && !!form.value.smtp_user && !!form.value.smtp_pass
-  if (name === 'feishu') return !!form.value.feishu_webhook
+  if (name === 'feishu') return form.value.feishu_webhooks.some(h => !!h.webhook)
   if (name === 'wechat') return !!form.value.wechat_webhook
   if (name === 'webhook') return !!form.value.webhook_url
   return false
+}
+
+function normalizeFeishuHooks(me: any): FeishuHook[] {
+  if (Array.isArray(me?.feishu_webhooks) && me.feishu_webhooks.length) {
+    return me.feishu_webhooks.filter((h: any) => h?.webhook)
+  }
+  // 兼容旧单字段
+  if (me?.feishu_webhook) {
+    return [{ name: '默认群', webhook: me.feishu_webhook }]
+  }
+  return []
 }
 
 async function load() {
@@ -160,6 +211,8 @@ async function load() {
     availableChannels.value = (cs.channels || []).filter(c => c.available)
     form.value = { ...form.value, ...me, smtp_pass: '' }
     form.value.channels = me.channels || ['inbox']
+    // Day 12:多飞书群机器人
+    form.value.feishu_webhooks = normalizeFeishuHooks(me)
   } catch (e: any) {
     msg.error('加载失败: ' + (e?.data?.detail || e?.message || '未知错误'))
   } finally {
@@ -176,7 +229,7 @@ async function save() {
       smtp_port: form.value.smtp_port,
       smtp_user: form.value.smtp_user,
       smtp_pass: form.value.smtp_pass || undefined,
-      feishu_webhook: form.value.feishu_webhook,
+      feishu_webhooks: form.value.feishu_webhooks.filter(h => !!h.webhook),
       wechat_webhook: form.value.wechat_webhook,
       webhook_url: form.value.webhook_url,
       default_channels: form.value.channels,

@@ -22,11 +22,13 @@ class TestSettings:
         assert r.status_code == 200
         data = r.json()
         # 必须包含核心字段
-        for key in ["email", "smtp_host", "smtp_port", "channels"]:
+        for key in ["email", "smtp_host", "smtp_port", "channels", "feishu_webhooks"]:
             assert key in data, f"缺少字段 {key}"
         # 密码脱敏
         assert "smtp_pass" not in data or data.get("smtp_pass") is None
         assert "smtp_pass_set" in data
+        # 飞书多群字段是列表
+        assert isinstance(data["feishu_webhooks"], list)
 
     def test_get_settings_no_auth(self, client):
         """未登录获取应 401"""
@@ -74,6 +76,44 @@ class TestSettings:
 
         # 回滚
         self._put_settings(client, auth_headers, {"default_channels": ["inbox"]})
+
+    def test_update_settings_feishu_multiple(self, client, auth_headers):
+        """更新多个飞书群机器人"""
+        r = self._put_settings(client, auth_headers, {
+            "feishu_webhooks": [
+                {"name": "技术群", "webhook": "https://open.feishu.cn/hook/tech"},
+                {"name": "产品群", "webhook": "https://open.feishu.cn/hook/product"},
+            ],
+        })
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+        r = client.get("/api/settings", headers=auth_headers)
+        hooks = r.json()["feishu_webhooks"]
+        assert len(hooks) == 2
+        assert hooks[0]["name"] == "技术群"
+        assert hooks[0]["webhook"] == "https://open.feishu.cn/hook/tech"
+        assert hooks[1]["name"] == "产品群"
+
+        # 回滚
+        self._put_settings(client, auth_headers, {"feishu_webhooks": []})
+
+    def test_update_settings_feishu_compat_single(self, client, auth_headers):
+        """兼容旧单字段 feishu_webhook,自动转成多群列表"""
+        r = self._put_settings(client, auth_headers, {
+            "feishu_webhook": "https://open.feishu.cn/hook/legacy",
+        })
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+        r = client.get("/api/settings", headers=auth_headers)
+        hooks = r.json()["feishu_webhooks"]
+        assert len(hooks) == 1
+        assert hooks[0]["name"] == "默认群"
+        assert hooks[0]["webhook"] == "https://open.feishu.cn/hook/legacy"
+
+        # 回滚
+        self._put_settings(client, auth_headers, {"feishu_webhooks": []})
 
     def test_update_settings_invalid_channel(self, client, auth_headers):
         """更新无效渠道名应被过滤"""
@@ -191,5 +231,7 @@ class TestFieldMasking:
         data = r.json()
         # webhook 字段存在（可为空）
         assert "feishu_webhook" in data
+        assert "feishu_webhooks" in data
+        assert isinstance(data.get("feishu_webhooks"), list)
         assert "wechat_webhook" in data
         assert "webhook_url" in data

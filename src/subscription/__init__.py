@@ -480,7 +480,8 @@ async def run_subscription(sub: dict, *, trigger: str = "manual", operator: str 
             user_doc = await _find_user_doc(db, user_id) or {}
         else:
             user_doc = user_doc_for_channels
-        print(f"  [sub run] {sub_id[:8]} channels={channels} feishu_webhook={'***' if user_doc.get('feishu_webhook') else 'MISSING'} items={len(new_items)}")
+        has_feishu = bool(user_doc.get('feishu_webhooks')) or bool(user_doc.get('feishu_webhook'))
+        print(f"  [sub run] {sub_id[:8]} channels={channels} feishu={'***' if has_feishu else 'MISSING'} items={len(new_items)}")
         t0 = time.time()
         results = await _render_and_send(user_doc, sub, new_items, channels)
         duration_ms = int((time.time() - t0) * 1000)

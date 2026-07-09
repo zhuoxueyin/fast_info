@@ -94,16 +94,34 @@ class EmailNotifier(Notifier):
 
 
 # ============================================================
-# 飞书机器人
+# 飞书机器人(支持多群)
 # ============================================================
+def get_feishu_webhooks(user: dict) -> list[dict]:
+    """统一读取用户配置的多飞书群机器人,兼容旧版单字段 feishu_webhook。
+
+    返回: [{"name": "群名", "webhook": "url"}, ...]
+    """
+    hooks = user.get("feishu_webhooks")
+    if isinstance(hooks, list) and hooks:
+        return [
+            {"name": h.get("name") or f"群{i+1}", "webhook": h["webhook"]}
+            for i, h in enumerate(hooks)
+            if isinstance(h, dict) and h.get("webhook")
+        ]
+    old = user.get("feishu_webhook")
+    if old:
+        return [{"name": "默认群", "webhook": old}]
+    return []
+
+
 class FeishuNotifier(Notifier):
     name = "feishu"
 
     def send(
         self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
     ) -> dict:
-        webhook = user.get("feishu_webhook")
-        if not webhook:
+        webhooks = get_feishu_webhooks(user)
+        if not webhooks:
             return {"ok": False, "http_status": None, "error": "no feishu_webhook"}
         if card and "card" in card:
             payload = {"msg_type": "interactive", "card": card["card"]}
@@ -119,7 +137,20 @@ class FeishuNotifier(Notifier):
                     ],
                 },
             }
-        return _post_webhook(webhook, payload, "feishu")
+
+        targets: list[dict] = []
+        for hook in webhooks:
+            res = _post_webhook(hook["webhook"], payload, "feishu")
+            targets.append({"name": hook["name"], **res})
+
+        # 汇总:任一成功即算渠道成功;http_status 取第一个成功的状态码
+        ok = any(t["ok"] for t in targets)
+        http_status = next((t["http_status"] for t in targets if t["ok"]), None)
+        if http_status is None and targets:
+            http_status = targets[-1].get("http_status")
+        errors = [f"{t['name']}: {t['error']}" for t in targets if not t["ok"] and t.get("error")]
+        error = "; ".join(errors) if errors else (None if ok else "all failed")
+        return {"ok": ok, "http_status": http_status, "error": error, "targets": targets}
 
 
 # ============================================================
