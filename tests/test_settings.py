@@ -192,6 +192,38 @@ class TestNotifierTest:
         assert "ok" in data
         # inbox 测试返回 ok 字段即可（值取决于 notifier 实现）
 
+    def test_test_feishu_by_group_missing(self, client, auth_headers):
+        """按群测试飞书:未配置时明确失败,不 500"""
+        r = client.post("/api/notifier/test", headers=auth_headers, json={
+            "channel": "feishu",
+            "feishu_name": "不存在的群",
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is False
+        assert "message" in data
+
+    def test_test_feishu_by_webhook_param(self, client, auth_headers):
+        """按群测试飞书:传 feishu_webhook 参数可被 API 接受"""
+        r = client.post("/api/notifier/test", headers=auth_headers, json={
+            "channel": "feishu",
+            "feishu_name": "单元测试群",
+            "feishu_webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/unit-test-fake",
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert "ok" in data
+        # 假 webhook 多半失败,但接口契约完整
+        assert "message" in data
+
+    def test_test_feishu_bad_index(self, client, auth_headers):
+        """feishu_index 非法应 400 或明确失败"""
+        r = client.post("/api/notifier/test", headers=auth_headers, json={
+            "channel": "feishu",
+            "feishu_index": "not-a-number",
+        })
+        assert r.status_code == 400
+
     def test_test_unknown_channel(self, client, auth_headers):
         """测试未知渠道应 400"""
         r = client.post("/api/notifier/test", headers=auth_headers, json={

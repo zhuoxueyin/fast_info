@@ -184,20 +184,23 @@
               <n-input v-model:value="hook.name" placeholder="群名称" size="small" />
               <n-input v-model:value="hook.webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx" size="small" />
             </div>
-            <n-button size="tiny" type="error" ghost @click="removeFeishuHook(idx)">删除</n-button>
+            <div class="flex flex-col gap-1">
+              <n-button
+                size="tiny"
+                type="primary"
+                ghost
+                :disabled="!hook.webhook"
+                :loading="testingFeishuIdx === idx"
+                @click="testFeishuGroup(idx)"
+              >
+                测试
+              </n-button>
+              <n-button size="tiny" type="error" ghost @click="removeFeishuHook(idx)">删除</n-button>
+            </div>
           </div>
         </div>
-        <n-button size="small" class="mb-3" @click="addFeishuHook">➕ 添加群</n-button>
-        <div class="flex gap-2 mt-2">
-          <n-button
-            size="small"
-            :disabled="!setting.feishu_webhooks.some(h => !!h.webhook)"
-            :loading="testingFeishu"
-            @click="testChannel('feishu')"
-          >
-            测试推送
-          </n-button>
-        </div>
+        <n-button size="small" class="mb-1" @click="addFeishuHook">➕ 添加群</n-button>
+        <p class="text-xs text-slate-400">测试按群维度发送,只推到当前这一行的 webhook。</p>
       </div>
 
       <!-- 默认推送渠道 -->
@@ -420,7 +423,8 @@ const setting = ref({
 const availableChannels = ref<BackendChannel[]>([])
 const settingsLoading = ref(false)
 const savingSettings = ref(false)
-const testingFeishu = ref(false)
+/** 正在测试的飞书群下标;null=空闲 */
+const testingFeishuIdx = ref<number | null>(null)
 
 function normalizeFeishuHooks(me: any): FeishuHook[] {
   if (Array.isArray(me?.feishu_webhooks) && me.feishu_webhooks.length) {
@@ -477,25 +481,42 @@ async function saveSettings() {
   }
 }
 
-async function testChannel(name: string) {
-  if (name === 'feishu') testingFeishu.value = true
+/** 按群维度测试飞书:只推当前这一行的 webhook,可测未保存输入 */
+async function testFeishuGroup(idx: number) {
+  const hook = setting.value.feishu_webhooks[idx]
+  if (!hook?.webhook) {
+    msg.warning('请先填写该群的 Webhook')
+    return
+  }
+  testingFeishuIdx.value = idx
   try {
-    const body: Record<string, any> = {
-      feishu_webhooks: setting.value.feishu_webhooks.filter(h => !!h.webhook),
-      default_channels: setting.value.channels,
-    }
-    await api<any>('/settings', { method: 'PUT', body })
-
-    const r = await api<any>('/notifier/test', { method: 'POST', body: { channel: name } })
+    // 先落盘全部配置,避免测通后刷新丢失
+    await api<any>('/settings', {
+      method: 'PUT',
+      body: {
+        feishu_webhooks: setting.value.feishu_webhooks.filter(h => !!h.webhook),
+        default_channels: setting.value.channels,
+      },
+    })
+    const r = await api<any>('/notifier/test', {
+      method: 'POST',
+      body: {
+        channel: 'feishu',
+        feishu_webhook: hook.webhook,
+        feishu_name: hook.name || `群${idx + 1}`,
+        feishu_index: idx,
+      },
+    })
+    const label = hook.name || `群${idx + 1}`
     if (r.ok) {
-      msg.success(`飞书群机器人 测试通过: ${r.message || ''}`)
+      msg.success(`群「${label}」测试通过${r.message ? ': ' + r.message : ''}`)
     } else {
-      msg.error(`测试失败: ${r.message || '请检查配置'}`)
+      msg.error(`群「${label}」测试失败: ${r.message || '请检查 webhook'}`)
     }
   } catch (e: any) {
     msg.error('测试失败: ' + (e?.data?.detail || e?.message || ''))
   } finally {
-    testingFeishu.value = false
+    testingFeishuIdx.value = null
   }
 }
 

@@ -67,11 +67,24 @@
                 size="small"
               />
             </div>
-            <n-button size="tiny" type="error" ghost @click="removeFeishuHook(idx)">删除</n-button>
+            <div class="flex flex-col gap-1">
+              <n-button
+                size="tiny"
+                type="primary"
+                ghost
+                :disabled="!hook.webhook"
+                :loading="testingFeishuIdx === idx"
+                @click="testFeishuGroup(idx)"
+              >
+                测试
+              </n-button>
+              <n-button size="tiny" type="error" ghost @click="removeFeishuHook(idx)">删除</n-button>
+            </div>
           </div>
           <p v-if="!form.feishu_webhooks.length" class="text-xs text-slate-400">
             暂无飞书群机器人,点击上方按钮添加。
           </p>
+          <p v-else class="text-xs text-slate-400">测试按群维度发送,只推到当前这一行的 webhook。</p>
         </div>
         <n-form-item label="企业微信机器人 Webhook">
           <n-input v-model:value="form.wechat_webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" />
@@ -147,6 +160,8 @@ const form = ref({
 const loading = ref(false)
 const saving = ref(false)
 const testing = ref<string | null>(null)
+/** 正在测试的飞书群下标 */
+const testingFeishuIdx = ref<number | null>(null)
 
 function addFeishuHook() {
   form.value.feishu_webhooks.push({ name: '', webhook: '' })
@@ -166,9 +181,13 @@ const channelCols: DataTableColumns<PushChannel> = [
       : h('span', { class: 'text-slate-300' }, '-'),
   },
   {
-    title: '测试', key: 'name', width: 80,
+    title: '测试', key: 'name', width: 100,
     render: (r: PushChannel) => {
       if (!r.required_fields.length) return h('span', { class: 'text-xs text-slate-300' }, '-')
+      // 飞书改为上方「按群」测试,表格行只提示
+      if (r.name === 'feishu') {
+        return h('span', { class: 'text-xs text-slate-400' }, '按群测')
+      }
       return h(NButton, {
         size: 'tiny',
         loading: testing.value === r.name,
@@ -262,6 +281,46 @@ async function testChannel(name: string) {
     msg.error('测试失败: ' + (e?.data?.detail || e?.message || ''))
   } finally {
     testing.value = null
+  }
+}
+
+/** 按群维度测试飞书:只推当前行 webhook */
+async function testFeishuGroup(idx: number) {
+  const hook = form.value.feishu_webhooks[idx]
+  if (!hook?.webhook) {
+    msg.warning('请先填写该群的 Webhook')
+    return
+  }
+  testingFeishuIdx.value = idx
+  try {
+    // 先保存配置,避免测通后刷新丢失
+    await api<any>('/settings', {
+      method: 'PUT',
+      body: {
+        feishu_webhooks: form.value.feishu_webhooks.filter(h => !!h.webhook),
+        default_channels: form.value.channels,
+      },
+    })
+    const r = await api<any>('/notifier/test', {
+      method: 'POST',
+      body: {
+        channel: 'feishu',
+        feishu_webhook: hook.webhook,
+        feishu_name: hook.name || `群${idx + 1}`,
+        feishu_index: idx,
+      },
+    })
+    const label = hook.name || `群${idx + 1}`
+    if (r.ok) {
+      msg.success(`群「${label}」测试通过${r.message ? ': ' + r.message : ''}`)
+      await load()
+    } else {
+      msg.error(`群「${label}」测试失败: ${r.message || '请检查 webhook'}`)
+    }
+  } catch (e: any) {
+    msg.error('测试失败: ' + (e?.data?.detail || e?.message || ''))
+  } finally {
+    testingFeishuIdx.value = null
   }
 }
 

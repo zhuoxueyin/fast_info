@@ -183,14 +183,44 @@ async def update_my_settings(body: SettingsUpdate, user: dict = Depends(require_
 
 @router.post("/notifier/test")
 async def test_my_notifier(body: dict, user: dict = Depends(require_user)):
-    """测试指定渠道(给前端 button)。user dict 已经是 deps 填好的完整版,不二次查库。"""
+    """测试指定渠道(给前端 button)。user dict 已经是 deps 填好的完整版,不二次查库。
+
+    Body:
+      channel: inbox|email|feishu|wechat|webhook  (必填)
+      飞书按群(推荐,互斥优先级 webhook > index > name):
+        feishu_webhook: 直接测该 URL(可测未保存的输入)
+        feishu_index:   已保存列表中的下标 0-based
+        feishu_name:    群名称
+      都不传则测全部已配置飞书群(兼容旧行为)
+    """
     channel = body.get("channel")
     if not channel or channel not in CHANNEL_FIELDS:
         raise HTTPException(400, f"channel must be one of {list(CHANNEL_FIELDS.keys())}")
     from notifier.test import test_channel
+
+    feishu_name = body.get("feishu_name")
+    feishu_webhook = body.get("feishu_webhook")
+    feishu_index = body.get("feishu_index")
+    if feishu_index is not None:
+        try:
+            feishu_index = int(feishu_index)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "feishu_index must be an integer")
+
     # user dict 已经包含所有 channel 字段 (deps._enrich_user 一次性填齐)
-    r = test_channel(channel, user=user)
-    return {"channel": channel, **r}
+    r = test_channel(
+        channel,
+        user=user,
+        feishu_name=feishu_name,
+        feishu_webhook=feishu_webhook,
+        feishu_index=feishu_index,
+    )
+    return {
+        "channel": channel,
+        "feishu_name": feishu_name,
+        "feishu_index": feishu_index,
+        **r,
+    }
 
 
 @router.get("/notifier/channels")
