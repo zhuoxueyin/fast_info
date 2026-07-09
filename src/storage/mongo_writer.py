@@ -185,14 +185,24 @@ def get_done_urls() -> set[str]:
 def get_recent_title_hashes(days: int = 7) -> set[str]:
     """返回 N 天内已入库的 title_hash 集合(跨源标题去重用)。
     用于:同一事件被多源报道,只保留最早抓取的那条。
+
+    注意:热搜源(weibo:hot)的 published_at 常为 null,必须用 fetched_at 兜底,
+    否则 title_hash 去重对热搜完全失效 → 同一话题被推 N 次。
     """
     from datetime import timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_iso = cutoff.isoformat()
     db = get_db()
     return {
         d["title_hash"]
         for d in db["items"].find(
-            {"title_hash": {"$exists": True, "$ne": ""}, "published_at": {"$gte": cutoff.isoformat()}},
+            {
+                "title_hash": {"$exists": True, "$ne": ""},
+                "$or": [
+                    {"published_at": {"$gte": cutoff_iso}},
+                    {"fetched_at": {"$gte": cutoff_iso}},
+                ],
+            },
             {"title_hash": 1, "_id": 0},
         )
     }

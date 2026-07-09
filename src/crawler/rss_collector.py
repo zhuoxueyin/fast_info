@@ -101,8 +101,63 @@ def _title_hash(title: str) -> str:
     return hashlib.sha256(_normalize_title(title).encode()).hexdigest()[:16]
 
 
+# 常见追踪/会话参数:参与 url_hash 会导致同一文章每次抓取都变新 id
+_TRACKING_QUERY_KEYS = frozenset({
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "utm_id", "utm_reader", "spm", "from", "ref", "refer", "share_token",
+    "share_from", "tt_from", "log_pb", "rank", "style_id", "category_name",
+    "event_type", "enter_from", "entrance_hotspot", "hot_board_impr_id",
+    "hot_board_cluster_id", "page_location", "location", "jump_page",
+    "source", "topic_id",  # topic_id 已嵌在 path /trending/{id}
+})
+
+
+def canonicalize_url(url: str) -> str:
+    """去掉追踪参数,抽出稳定正文 URL,供 url_hash 去重。
+
+    典型故障:头条热搜 URL 每次带不同 log_pb/impr_id,
+    导致同一话题被当成 N 条新 item 推送(见 2026世界杯资讯「新华社：国足…」重复)。
+    """
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+        raw = url.strip()
+        p = urlparse(raw)
+        host = (p.netloc or "").lower()
+        path = p.path or ""
+
+        # 头条热榜/文章:path 里已有稳定 id
+        if "toutiao.com" in host:
+            m = re.match(r"^/(trending|article|group)/(\d+)", path)
+            if m:
+                return f"https://www.toutiao.com/{m.group(1)}/{m.group(2)}"
+
+        # 知乎 question/answer
+        if "zhihu.com" in host:
+            m = re.match(r"^/(question|answer|p)/(\d+)", path)
+            if m:
+                return f"https://www.zhihu.com/{m.group(1)}/{m.group(2)}"
+
+        # 通用:剥 tracking query + fragment
+        if p.query:
+            kept = [
+                (k, v) for k, v in parse_qsl(p.query, keep_blank_values=False)
+                if k.lower() not in _TRACKING_QUERY_KEYS
+                and not k.lower().startswith("utm_")
+            ]
+            query = urlencode(kept)
+        else:
+            query = ""
+        return urlunparse((p.scheme or "https", p.netloc, path.rstrip("/") or path, "", query, ""))
+    except Exception:
+        return url.strip()
+
+
 def _make_id(source: str, url: str) -> str:
-    h = hashlib.sha256(f"{source}|{url}".encode()).hexdigest()
+    """基于 source + 规范化 URL 生成稳定 24 位 hash id。"""
+    canon = canonicalize_url(url) or (url or "")
+    h = hashlib.sha256(f"{source}|{canon}".encode()).hexdigest()
     return h[:24]
 
 

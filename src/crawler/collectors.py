@@ -18,7 +18,7 @@ from typing import Optional
 import feedparser
 import httpx
 
-from .rss_collector import Item, _strip_html, _title_hash, _make_id, USER_AGENT
+from .rss_collector import Item, _strip_html, _title_hash, _make_id, canonicalize_url, USER_AGENT
 from .sources import RSS_SOURCES, KOL_SOURCES
 from .mirrors import (
     get_huxiu_urls,
@@ -294,7 +294,6 @@ async def fetch_weibo_hot(
     """
     import json as _json
     from datetime import datetime, timezone
-    from crawler.rss_collector import Item, _strip_html, _title_hash, _make_id
     fetched_at = datetime.now(timezone.utc).isoformat()
     headers = {
         "User-Agent": USER_AGENT,
@@ -322,6 +321,8 @@ async def fetch_weibo_hot(
             continue
         if not url:
             url = f"https://www.toutiao.com/search/?keyword={title}"
+        # 剥 log_pb 等追踪参数,保证同一 topic 的 url_hash 稳定
+        url = canonicalize_url(url) or url
         hot = row.get("HotValue") or row.get("hot") or row.get("score") or 0
         summary = ""
         if hot:
