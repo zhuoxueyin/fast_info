@@ -272,8 +272,8 @@ def admin_stats(admin: dict = Depends(require_admin)):
 
 @router.post("/ingest/run")
 async def admin_ingest_run(
+    background_tasks: BackgroundTasks,
     limit: int = Query(8, ge=1, le=30),
-    background: BackgroundTasks = None,  # FastAPI 注入
     admin: dict = Depends(require_admin),
 ):
     """管理员:手动触发一次抓取(Day 5 改造为异步)。
@@ -295,9 +295,10 @@ async def admin_ingest_run(
 
     run_id = args.run_id
 
-    async def _bg():
+    def _bg_sync():
+        """BackgroundTasks 跑同步函数;在独立线程里 asyncio.run 异步 ingest。"""
         try:
-            await run_once(args)
+            asyncio.run(run_once(args))
         except Exception as e:
             from storage.mongo_writer import update_task_run_finished
             update_task_run_finished(run_id, {
@@ -318,16 +319,7 @@ async def admin_ingest_run(
     })
 
     print(f"[ingest_run] scheduled run_id={run_id} operator={args.operator} limit={limit}", flush=True)
-
-    # 用 FastAPI BackgroundTasks(确保 response 后任务真的跑)
-    if background is not None:
-        # BackgroundTasks 不支持 async coroutine,包成 sync wrapper
-        def _bg_wrapper():
-            asyncio.run(_bg())
-        background.add_task(_bg_wrapper)
-    else:
-        # 兜底
-        asyncio.create_task(_bg())
+    background_tasks.add_task(_bg_sync)
 
     return {
         "run_id": run_id,
