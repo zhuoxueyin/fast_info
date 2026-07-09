@@ -448,15 +448,46 @@ async def run_subscription(sub: dict, *, trigger: str = "manual", operator: str 
     if not candidates:
         return {"scanned": 0, "matched": 0, "delivered": 0, "skipped": "no matches"}
 
-    # 2. 跳过已推送
+    # 2. 跳过已推送 + 同批 / 历史 title_hash 去重
+    # 热搜源曾因 URL 追踪参数生成多条"假新 item"(同一话题不同 url_hash),
+    # 仅靠 item_id 去重挡不住;用 title_hash 做内容级兜底。
     sub_id = str(sub.get("_id", ""))
     user_id = sub.get("user_id", "anonymous")
     delivered = db["subscriptions_delivered"]
-    delivered_ids = set()
+    delivered_ids: set[str] = set()
     async for d in delivered.find({"subscription_id": sub_id}):
         delivered_ids.add(d["item_id"])
 
-    new_items = [it for it in candidates if str(it["_id"]) not in delivered_ids][:max_items]
+    delivered_title_hashes: set[str] = set()
+    if delivered_ids:
+        from bson import ObjectId
+        oid_list = []
+        for iid in delivered_ids:
+            try:
+                oid_list.append(ObjectId(iid))
+            except Exception:
+                pass
+        if oid_list:
+            async for it in db["items"].find(
+                {"_id": {"$in": oid_list}, "title_hash": {"$exists": True, "$ne": ""}},
+                {"title_hash": 1},
+            ):
+                delivered_title_hashes.add(it["title_hash"])
+
+    new_items: list = []
+    batch_title_hashes: set[str] = set()
+    for it in candidates:
+        iid = str(it.get("_id", ""))
+        if iid in delivered_ids:
+            continue
+        th = (it.get("title_hash") or "").strip()
+        if th and (th in delivered_title_hashes or th in batch_title_hashes):
+            continue
+        if th:
+            batch_title_hashes.add(th)
+        new_items.append(it)
+        if len(new_items) >= max_items:
+            break
 
     # 3. 标记已推送
     if new_items:
