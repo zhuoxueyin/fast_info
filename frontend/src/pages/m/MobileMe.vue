@@ -19,8 +19,8 @@
     </div>
     <!-- 快捷操作 -->
     <div class="space-y-2">
-      <router-link to="/me" class="block bg-emerald-500 text-white rounded-lg py-3 text-center font-medium">
-        👤 个人中心
+      <router-link to="/m/me/settings" class="block bg-emerald-500 text-white rounded-lg py-3 text-center font-medium">
+        ⚙️ 个人设置
       </router-link>
     </div>
   </div>

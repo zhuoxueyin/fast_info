@@ -118,11 +118,12 @@ def ensure_indexes():
 # ============================================================
 
 def _ensure_category_l1(item: dict) -> None:
-    """确保 item 有 category_l1 字段;如果没有,从 category 归一化"""
+    """确保 item 有 category_l1 字段;如果没有,从 category + 标题/摘要归一化"""
     if not item.get("category_l1"):
         try:
             from taxonomy import normalize_l1
-            item["category_l1"] = normalize_l1(item.get("category"))
+            text = f"{item.get('title', '')} {item.get('summary', '')}"
+            item["category_l1"] = normalize_l1(item.get("category"), text)
         except Exception:
             item["category_l1"] = "其他"
 

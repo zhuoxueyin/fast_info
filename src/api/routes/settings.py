@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 from ..deps import require_user
 from storage.mongo_writer import get_db
+from notifier import get_feishu_webhooks
 
 
 router = APIRouter(tags=["settings"])
@@ -39,7 +40,7 @@ DEFAULT_DB = "fastinfo"
 CHANNEL_FIELDS = {
     "inbox":     [],
     "email":     ["email", "smtp_host", "smtp_port", "smtp_user", "smtp_pass"],
-    "feishu":    ["feishu_webhook"],
+    "feishu":    ["feishu_webhooks"],
     "wechat":    ["wechat_webhook"],
     "webhook":   ["webhook_url"],
 }
@@ -60,7 +61,7 @@ def _available_channels(user: dict) -> set[str]:
     (NewSubPage / SettingsPage / MePage 都以此为唯一来源)。
     """
     out = {"inbox"}  # 站内永远可用
-    if user.get("feishu_webhook"):
+    if get_feishu_webhooks(user):
         out.add("feishu")
     if user.get("wechat_webhook"):
         out.add("wechat")
@@ -74,6 +75,7 @@ def _available_channels(user: dict) -> set[str]:
 
 def _to_view(user: dict) -> dict:
     """读用户 settings 视图(密码脱敏)。入参是 deps 已经填好的 user dict。"""
+    feishu_hooks = get_feishu_webhooks(user)
     return {
         "email":                     user.get("email", ""),
         "nickname":                  user.get("nickname", "") or "",
@@ -82,7 +84,9 @@ def _to_view(user: dict) -> dict:
         "smtp_port":                 user.get("smtp_port", 465),
         "smtp_user":                 user.get("smtp_user", ""),
         "smtp_pass_set":             bool(user.get("smtp_pass")),
-        "feishu_webhook":            user.get("feishu_webhook", ""),
+        # Day 12:飞书支持多群,feishu_webhooks 是主字段;feishu_webhook 保留兼容旧前端
+        "feishu_webhooks":           feishu_hooks,
+        "feishu_webhook":            (feishu_hooks[0]["webhook"] if feishu_hooks else ""),
         "wechat_webhook":            user.get("wechat_webhook", ""),
         "webhook_url":               user.get("webhook_url", ""),
         "channels":                  user.get("default_channels") or ["inbox"],
@@ -97,7 +101,8 @@ class SettingsUpdate(BaseModel):
     smtp_port:            Optional[int] = None
     smtp_user:            Optional[str] = None
     smtp_pass:            Optional[str] = None  # 留空 = 不改
-    feishu_webhook:       Optional[str] = None
+    feishu_webhook:       Optional[str] = None  # 兼容旧单字段(会被转成单条列表)
+    feishu_webhooks:      Optional[list[dict]] = None  # Day 12:多飞书群机器人
     wechat_webhook:       Optional[str] = None
     webhook_url:          Optional[str] = None
     default_channels:     Optional[list[str]] = None
@@ -107,6 +112,22 @@ class SettingsUpdate(BaseModel):
 async def get_my_settings(user: dict = Depends(require_user)):
     """读用户推送配置(密码脱敏)。直接用 deps 填好的 user dict,不二次查库。"""
     return _to_view(user)
+
+
+def _normalize_feishu_webhooks(raw: list[dict] | None) -> list[dict]:
+    """过滤并规范化用户传入的飞书群机器人列表。"""
+    if not raw:
+        return []
+    out = []
+    for i, h in enumerate(raw):
+        if not isinstance(h, dict):
+            continue
+        url = (h.get("webhook") or "").strip()
+        if not url:
+            continue
+        name = (h.get("name") or "").strip() or f"群{i+1}"
+        out.append({"name": name, "webhook": url})
+    return out
 
 
 @router.put("/settings")
@@ -128,8 +149,22 @@ async def update_my_settings(body: SettingsUpdate, user: dict = Depends(require_
         update["smtp_user"] = body.smtp_user
     if body.smtp_pass is not None and body.smtp_pass != "":
         update["smtp_pass"] = body.smtp_pass
-    if body.feishu_webhook is not None:
-        update["feishu_webhook"] = body.feishu_webhook
+    # Day 12:多飞书群机器人。feishu_webhooks 优先;兼容旧 feishu_webhook 单字段。
+    if body.feishu_webhooks is not None:
+        hooks = _normalize_feishu_webhooks(body.feishu_webhooks)
+        if hooks:
+            update["feishu_webhooks"] = hooks
+            update["feishu_webhook"] = ""  # 避免旧字段重复生效
+        else:
+            update["feishu_webhooks"] = []
+            update["feishu_webhook"] = ""
+    elif body.feishu_webhook is not None:
+        if body.feishu_webhook:
+            update["feishu_webhooks"] = [{"name": "默认群", "webhook": body.feishu_webhook}]
+            update["feishu_webhook"] = body.feishu_webhook
+        else:
+            update["feishu_webhooks"] = []
+            update["feishu_webhook"] = ""
     if body.wechat_webhook is not None:
         update["wechat_webhook"] = body.wechat_webhook
     if body.webhook_url is not None:

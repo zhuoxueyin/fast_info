@@ -23,7 +23,7 @@ features:
   - title: 🎯 自然语言订阅
     details: 输入「每天 9 点看 AI 资讯」自动解析为 cron + 关键词,无需手写配置
   - title: 🌐 Web 平台
-    details: 管理员视角看爬取任务 / 汇总统计 / Banner 配置;用户视角看热门 / 搜索 / 个人推送
+    details: 用户视角看热门 / 搜索 / 个人推送
   - title: 🔌 REST API
     details: 15+ 个 endpoint 全部带 Swagger UI,前端 / 脚本 / 第三方都能对接
   - title: 📚 完整文档

@@ -31,6 +31,7 @@ class UserView(BaseModel):
     nickname: Optional[str] = None       # Day 7:用户自填的昵称(展示用,fallback → username)
     avatar_url: Optional[str] = None     # Day 7:用户头像 URL(没配 → 首字母兜底)
     feishu_webhook: Optional[str] = None
+    feishu_webhooks: Optional[list[dict]] = None  # Day 12:多飞书群机器人
     wechat_webhook: Optional[str] = None
     webhook_url: Optional[str] = None
 

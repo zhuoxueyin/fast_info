@@ -86,13 +86,21 @@ async def run_source(source_id: str, limit: int, task_run_id: str, trigger: str)
     failed = 0
 
     system_prompt = (
-        "你是中文资讯编辑。对给定文章标题和摘要进行处理，输出严格JSON（无markdown包裹，无多余文字）：\n"
+        "你是 fastInfo 的中文资讯分类编辑。请根据文章标题和摘要，输出严格 JSON（无 markdown 包裹，无多余文字）：\n"
         '{"title_zh": "中文标题(若原标题已是中文则与原标题一致;若为英文必须翻译成简洁中文,实体名/队名/球员名可保留英文,≤30字)", '
         '"summary": "120-180字中文摘要，信息完整，不空洞", "key_points": ["要点1","要点2","要点3"], '
-        '"category": "二级分类(如大模型/AI芯片/新能源/自动驾驶/A股/影视等)", '
+        '"category": "二级分类(如大模型/AI芯片/新能源/自动驾驶/A股/影视/游戏等)", '
         '"category_l1": "一级分类，必须是：科技/AI/体育/娱乐/财经/汽车/其他 之一", '
-        '"relevance": 0.0-10.0热度分}\n'
-        "规则：category_l1必须从给定列表中选最贴切的一个；summary必须有实质内容不要空；title_zh必须输出。"
+        '"relevance": 0.0-10.0热度分}\n\n'
+        "一级分类定义（按主题内容选最贴切的一个，不要只看是否提到融资/股价）：\n"
+        "- 科技：互联网、软件、硬件、芯片/半导体/CPU/GPU、通信/5G、消费电子、物联网、云计算/SaaS、开源、网络安全、量子计算、航空/航天、无人机、VR/AR、元宇宙、生物科技、工业互联网等产业动态\n"
+        "- AI：人工智能、大模型、AIGC、Agent/智能体、AI芯片、AI应用、具身智能、多模态、NLP、计算机视觉、ChatGPT/GPT/LLM/Claude/Gemini/DeepSeek等\n"
+        "- 体育：足球、篮球、电竞(LOL/DOTA/王者/CSGO)、NBA/CBA、世界杯、欧冠、奥运会、F1、马拉松、网球、乒乓球、羽毛球等\n"
+        "- 娱乐：影视、音乐、明星、综艺、动漫/动画/漫画/二次元、游戏、直播、短视频、美食、旅游、时尚、艺术、文化等\n"
+        "- 财经：股市/IPO/上市、融资（仅当文章核心是投资/交易而非科技产品）、A股/港股/美股/中概股、基金/债券、宏观/央行/GDP/CPI/降息/加息、银行/保险/房地产、比特币/以太坊/区块链/加密货币/币圈、创业/VC/PE/财报/并购等\n"
+        "- 汽车：汽车、新能源车/电动车、自动驾驶/智能驾驶、新势力(小米SU7/比亚迪/特斯拉/蔚来/小鹏/理想等)、传统车企、电池/充电/充电桩等\n"
+        "- 其他：社会、教育、健康、生活等不属于以上 6 类的内容\n\n"
+        "规则：category_l1 必须从给定列表中选；若文章是科技/AI 产品或产业新闻，即使提到融资也应优先归为科技/AI；summary 必须有实质内容；title_zh 必须输出。"
     )
 
     async def one(item):
@@ -146,9 +154,17 @@ async def run_source(source_id: str, limit: int, task_run_id: str, trigger: str)
             else:
                 final_title = original_title
 
-            cat_l1 = parsed.get("category_l1") or normalize_l1(parsed.get("category"))
+            raw_l1 = parsed.get("category_l1")
+            raw_cat = parsed.get("category")
+            text_hint = f"{final_title} {summary_text}"
+            cat_l1 = raw_l1 if raw_l1 in ("科技","AI","体育","娱乐","财经","汽车","其他") else ""
+            # LLM 给的"其他"可能只是不会分；用 category + 标题/摘要再兜一次底
+            if not cat_l1 or cat_l1 == "其他":
+                inferred = normalize_l1(raw_cat, text=text_hint)
+                if inferred != "其他":
+                    cat_l1 = inferred
             if cat_l1 not in ("科技","AI","体育","娱乐","财经","汽车","其他"):
-                cat_l1 = normalize_l1(parsed.get("category")) or "其他"
+                cat_l1 = "其他"
 
             doc = {
                 "url_hash": item.id, "id": item.id,
@@ -327,13 +343,21 @@ async def run_legacy(args) -> dict:
     failed = 0
 
     system_prompt = (
-        "你是中文资讯编辑。对给定文章标题和摘要进行处理，输出严格JSON（无markdown包裹，无多余文字）：\n"
+        "你是 fastInfo 的中文资讯分类编辑。请根据文章标题和摘要，输出严格 JSON（无 markdown 包裹，无多余文字）：\n"
         '{"title_zh": "中文标题(若原标题已是中文则与原标题一致;若为英文必须翻译成简洁中文,实体名/队名/球员名可保留英文,≤30字)", '
         '"summary": "120-180字中文摘要，信息完整，不空洞", "key_points": ["要点1","要点2","要点3"], '
-        '"category": "二级分类(如大模型/AI芯片/新能源/自动驾驶/A股/影视等)", '
+        '"category": "二级分类(如大模型/AI芯片/新能源/自动驾驶/A股/影视/游戏等)", '
         '"category_l1": "一级分类，必须是：科技/AI/体育/娱乐/财经/汽车/其他 之一", '
-        '"relevance": 0.0-10.0热度分}\n'
-        "规则：category_l1必须从给定列表中选最贴切的一个；summary必须有实质内容不要空；title_zh必须输出。"
+        '"relevance": 0.0-10.0热度分}\n\n'
+        "一级分类定义（按主题内容选最贴切的一个，不要只看是否提到融资/股价）：\n"
+        "- 科技：互联网、软件、硬件、芯片/半导体/CPU/GPU、通信/5G、消费电子、物联网、云计算/SaaS、开源、网络安全、量子计算、航空/航天、无人机、VR/AR、元宇宙、生物科技、工业互联网等产业动态\n"
+        "- AI：人工智能、大模型、AIGC、Agent/智能体、AI芯片、AI应用、具身智能、多模态、NLP、计算机视觉、ChatGPT/GPT/LLM/Claude/Gemini/DeepSeek等\n"
+        "- 体育：足球、篮球、电竞(LOL/DOTA/王者/CSGO)、NBA/CBA、世界杯、欧冠、奥运会、F1、马拉松、网球、乒乓球、羽毛球等\n"
+        "- 娱乐：影视、音乐、明星、综艺、动漫/动画/漫画/二次元、游戏、直播、短视频、美食、旅游、时尚、艺术、文化等\n"
+        "- 财经：股市/IPO/上市、融资（仅当文章核心是投资/交易而非科技产品）、A股/港股/美股/中概股、基金/债券、宏观/央行/GDP/CPI/降息/加息、银行/保险/房地产、比特币/以太坊/区块链/加密货币/币圈、创业/VC/PE/财报/并购等\n"
+        "- 汽车：汽车、新能源车/电动车、自动驾驶/智能驾驶、新势力(小米SU7/比亚迪/特斯拉/蔚来/小鹏/理想等)、传统车企、电池/充电/充电桩等\n"
+        "- 其他：社会、教育、健康、生活等不属于以上 6 类的内容\n\n"
+        "规则：category_l1 必须从给定列表中选；若文章是科技/AI 产品或产业新闻，即使提到融资也应优先归为科技/AI；summary 必须有实质内容；title_zh 必须输出。"
     )
 
     async def one(item):
@@ -369,9 +393,17 @@ async def run_legacy(args) -> dict:
             summary_text = (parsed.get("summary") or "").strip() or fallback_summary
             title_zh = (parsed.get("title_zh") or "").strip()
             final_title = title_zh if (title_zh and len(title_zh) >= 2) else item.title
-            cat_l1 = parsed.get("category_l1") or normalize_l1(parsed.get("category"))
+            raw_l1 = parsed.get("category_l1")
+            raw_cat = parsed.get("category")
+            text_hint = f"{final_title} {summary_text}"
+            cat_l1 = raw_l1 if raw_l1 in ("科技","AI","体育","娱乐","财经","汽车","其他") else ""
+            # LLM 给的"其他"可能只是不会分；用 category + 标题/摘要再兜一次底
+            if not cat_l1 or cat_l1 == "其他":
+                inferred = normalize_l1(raw_cat, text=text_hint)
+                if inferred != "其他":
+                    cat_l1 = inferred
             if cat_l1 not in ("科技","AI","体育","娱乐","财经","汽车","其他"):
-                cat_l1 = normalize_l1(parsed.get("category")) or "其他"
+                cat_l1 = "其他"
             doc = {
                 "url_hash": item.id, "id": item.id,
                 "source": item.source, "source_url": item.source_url, "url": item.url,

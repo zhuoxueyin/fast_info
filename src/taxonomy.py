@@ -8,44 +8,99 @@ from typing import Optional
 from crawler.sources import CATEGORY_L1, CATEGORY_L2, CATEGORY_LEGACY_MAP
 
 
-def normalize_l1(category: Optional[str]) -> str:
-    """把任意 category 字符串归到 7 个 L1 之一(优先查 legacy map,再模糊匹配)"""
-    if not category:
+# 当 category 字段无法归一时，用标题+摘要做最后一道兜底
+_TEXT_L1_KEYWORDS = {
+    "AI": [
+        "人工智能", "大模型", "aigc", "生成式", "chatgpt", "gpt", "llm", "claude",
+        "gemini", "deepseek", "多模态", "智能体", "agent", "nlp", "计算机视觉",
+        "具身智能", "ai芯片",
+    ],
+    "科技": [
+        "互联网", "半导体", "芯片", "存储", "cpu", "gpu", "消费电子", "通信", "5g",
+        "物联网", "云计算", "saas", "开源", "软件", "网络安全", "量子计算",
+        "生物科技", "航空", "航天", "无人机", "vr", "ar", "元宇宙", "3d打印",
+        "制造", "工业互联网", "硬件", "数码", "手机", "笔记本",
+    ],
+    "体育": [
+        "足球", "篮球", "电竞", "lol", "dota", "王者", "csgo", "nba", "cba",
+        "世界杯", "欧冠", "奥运会", "f1", "马拉松", "网球", "乒乓球", "羽毛球",
+    ],
+    "娱乐": [
+        "电影", "电视剧", "票房", "导演", "演员", "音乐", "歌手", "专辑", "演唱会",
+        "综艺", "动漫", "动画", "漫画", "二次元", "游戏", "直播", "短视频", "美食",
+        "旅游", "时尚", "艺术", "文化",
+    ],
+    "财经": [
+        "股市", "股票", "ipo", "上市", "融资", "投资", "a股", "港股", "美股",
+        "中概股", "基金", "债券", "宏观", "央行", "gdp", "cpi", "降息", "加息",
+        "银行", "保险", "房地产", "比特币", "以太坊", "区块链", "加密货币", "币圈",
+        "创业", "独角兽", "vc", "pe", "财报", "并购",
+    ],
+    "汽车": [
+        "汽车", "新能源车", "电动车", "自动驾驶", "智能驾驶", "小米su7", "su7", "比亚迪",
+        "特斯拉", "蔚来", "小鹏", "理想", "极氪", "华为智选", "宁德时代", "电池",
+        "充电", "充电桩", "传统车企", "新势力",
+    ],
+}
+
+
+def _l1_from_text(text: Optional[str]) -> str:
+    """标题+摘要关键词兜底，只在 category 无法归一时使用"""
+    if not text:
         return "其他"
-    cat = category.strip()
-    # 处理带斜杠的复合分类，如"科技/AI"、"AI/大模型"等
-    if "/" in cat:
-        parts = [p.strip() for p in cat.split("/") if p.strip()]
-        for p in parts:
-            result = normalize_l1(p)
-            if result != "其他":
-                return result
-    if cat in CATEGORY_L1:
-        return cat
-    if cat in CATEGORY_LEGACY_MAP:
-        return CATEGORY_LEGACY_MAP[cat]
-    # 模糊:L2 → L1
-    for l1, l2_list in CATEGORY_L2.items():
-        if cat in l2_list:
-            return l1
-        for l2 in l2_list:
-            if l2 and (l2 in cat or cat in l2):
-                return l1
-    # 关键词 fallback
-    keys = {
-        "AI": ["ai", "gpt", "llm", "大模型", "人工智能", "机器人", "agent"],
-        "科技": ["科技", "互联网", "数码", "硬件", "芯片", "半导体", "it", "tech"],
-        "体育": ["体育", "足球", "篮球", "电竞", "nba", "cba", "c罗", "梅西"],
-        "娱乐": ["娱乐", "影视", "音乐", "明星", "综艺", "动漫"],
-        "财经": ["财经", "股市", "股票", "融资", "创业", "币", "宏观", "美股", "港股", "a股"],
-        "汽车": ["汽车", "新能源", "自动驾驶", "小鹏", "比亚迪", "特斯拉", "蔚来"],
-    }
-    cl = cat.lower()
-    for l1, kws in keys.items():
+    t = text.lower()
+    scores: dict[str, int] = {l1: 0 for l1 in CATEGORY_L1}
+    for l1, kws in _TEXT_L1_KEYWORDS.items():
         for kw in kws:
-            if kw in cl:
-                return l1
-    return "其他"
+            if kw in t:
+                scores[l1] += 1
+    if not any(scores.values()):
+        return "其他"
+    # AI/科技容易混淆：AI 是科技的子集，命中 AI 关键词时优先 AI
+    if scores["AI"] > 0 and scores["科技"] > 0:
+        return "AI"
+    # 财经/科技容易混淆：若同时命中科技且命中财经，优先科技（科技产业新闻更常带融资）
+    if scores["科技"] > 0 and scores["财经"] > 0:
+        return "科技"
+    # 汽车/财经容易混淆："新车上市"常被误判为 IPO，优先汽车
+    if scores["汽车"] > 0 and scores["财经"] > 0:
+        return "汽车"
+    return max(scores, key=lambda k: scores[k])
+
+
+def normalize_l1(category: Optional[str], text: Optional[str] = None) -> str:
+    """把任意 category 字符串归到 7 个 L1 之一(优先查 legacy map,再模糊匹配,最后文本兜底)"""
+    if not category:
+        result = "其他"
+    else:
+        cat = category.strip()
+        # 处理带斜杠的复合分类，如"科技/AI"、"AI/大模型"等
+        if "/" in cat:
+            parts = [p.strip() for p in cat.split("/") if p.strip()]
+            for p in parts:
+                r = normalize_l1(p, text=None)
+                if r != "其他":
+                    return r
+        if cat in CATEGORY_L1:
+            result = cat
+        elif cat in CATEGORY_LEGACY_MAP:
+            result = CATEGORY_LEGACY_MAP[cat]
+        else:
+            # 模糊:L2 → L1
+            result = "其他"
+            for l1, l2_list in CATEGORY_L2.items():
+                if cat in l2_list:
+                    result = l1
+                    break
+                for l2 in l2_list:
+                    if l2 and (l2 in cat or cat in l2):
+                        result = l1
+                        break
+                if result != "其他":
+                    break
+    if result == "其他" and text:
+        result = _l1_from_text(text)
+    return result
 
 
 def suggest_l2(l1: str, content: str = "") -> str:

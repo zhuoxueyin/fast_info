@@ -42,6 +42,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'me/inbox', component: () => import('@/pages/m/MobileInbox.vue'), name: 'm-inbox', meta: { auth: true } },
       { path: 'me/subs', component: () => import('@/pages/m/MobileSubs.vue'), name: 'm-subs', meta: { auth: true } },
       { path: 'me/settings', component: () => import('@/pages/m/MobileSettings.vue'), name: 'm-settings', meta: { auth: true } },
+      { path: 'me/push-history', component: () => import('@/pages/m/MobilePushHistory.vue'), name: 'm-push-history', meta: { auth: true } },
       { path: 'subs/new', component: () => import('@/pages/m/MobileNewSub.vue'), name: 'm-sub-new', meta: { auth: true } },
       { path: 'subs/edit/:id', component: () => import('@/pages/m/MobileNewSub.vue'), name: 'm-sub-edit', meta: { auth: true }, props: true },
       { path: 'login', component: () => import('@/pages/m/MobileLogin.vue'), name: 'm-login' },
@@ -63,14 +64,23 @@ const router = createRouter({
 
 // ============ Guard 1 · 鉴权 ============
 router.beforeEach(async (to, _from, next) => {
+  console.log('[DEBUG GUARD1] to.path=', to.path, 'to.name=', to.name, 'to.meta=', to.meta)
   if (to.meta?.auth) {
     const token = localStorage.getItem('token')
-    if (!token) return next({ path: '/login', query: { redirect: to.fullPath } })
+    console.log('[DEBUG GUARD1] token=', token ? 'exists' : 'missing')
+    if (!token) {
+      console.log('[DEBUG GUARD1] redirect to /login?redirect=', to.fullPath)
+      return next({ path: '/login', query: { redirect: to.fullPath } })
+    }
     if (to.meta?.admin) {
       const user = JSON.parse(localStorage.getItem('user') || '{}')
-      if (user?.role !== 'admin') return next({ path: '/me' })
+      if (user?.role !== 'admin') {
+        console.log('[DEBUG GUARD1] not admin, redirect to /me')
+        return next({ path: '/me' })
+      }
     }
   }
+  console.log('[DEBUG GUARD1] next()')
   next()
 })
 
@@ -78,39 +88,41 @@ router.beforeEach(async (to, _from, next) => {
 // 同一访问地址,手机 UA 自动渲染 mobile 版本
 // 例: 手机访问 "/" → 跳 "/m"; 桌面访问 "/m" → 跳 "/"
 router.beforeEach((to, _from, next) => {
+  console.log('[DEBUG GUARD2] to.path=', to.path, 'to.name=', to.name)
   // 跳过 admin / 404 / 静态资源
-  if (to.path.startsWith('/admin') || to.name === '404') return next()
+  if (to.path.startsWith('/admin') || to.name === '404') {
+    console.log('[DEBUG GUARD2] skip admin/404')
+    return next()
+  }
   // 显式 ?desktop=1 强制桌面
-  if (to.query.desktop === '1') return next()
+  if (to.query.desktop === '1') {
+    console.log('[DEBUG GUARD2] desktop=1, skip')
+    return next()
+  }
 
   const device = detectDevice()
+  console.log('[DEBUG GUARD2] device=', device)
 
-  if (device === 'mobile' && !to.path.startsWith('/m')) {
+  // 修正:不能简单用 startsWith('/m'),否则 /me /monitor 等会被误判为 mobile 路径
+  const isMobilePath = to.path === '/m' || to.path.startsWith('/m/')
+
+  if (device === 'mobile' && !isMobilePath) {
     // 手机访问 desktop 路径 → 重定向到 /m 对应路径
     const mobilePath = to.path === '/' ? '/m' : `/m${to.path}`
+    console.log('[DEBUG GUARD2] mobile redirect to=', mobilePath)
     // 保留 query / hash(过滤掉 desktop=1)
     const { desktop: _, ...restQuery } = to.query as any
     return next({ path: mobilePath, query: restQuery, hash: to.hash, replace: true })
   }
 
-  if (device === 'desktop' && to.path.startsWith('/m')) {
+  if (device === 'desktop' && isMobilePath) {
     // 桌面访问 /m/* 路径 → 跳回 desktop 版本
-    let desktopPath = to.path.replace(/^\/m/, '') || '/'
-    // 处理特殊映射 (DesktopLayout 路由结构):
-    // /m/me/inbox    → /me/inbox
-    // /m/me/subs     → /me/subs
-    // /m/me/settings → /me/settings
-    // /m/me          → /me
-    // /m/subs/new    → /subs/new
-    // /m/subs/edit/X → /subs/edit/X
-    // /m/items/X     → /items/X
-    // /m/topic/X     → /topic/X
-    // /m/topics      → /topics
-    // /m/login       → /login
-    // (上面规则由 .replace 正则覆盖,不需要额外处理)
+    let desktopPath = to.path === '/m' ? '/' : to.path.replace(/^\/m\//, '/')
+    console.log('[DEBUG GUARD2] desktop redirect to=', desktopPath)
     return next({ path: desktopPath, query: to.query, hash: to.hash, replace: true })
   }
 
+  console.log('[DEBUG GUARD2] next()')
   next()
 })
 

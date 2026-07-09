@@ -22,6 +22,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
 from storage.mongo_writer import get_sync_client  # noqa: E402
+from notifier import get_feishu_webhooks  # noqa: E402
 
 DEFAULT_DB = "fastinfo"
 
@@ -29,7 +30,7 @@ DEFAULT_DB = "fastinfo"
 def _available_channels(user: dict) -> set[str]:
     """跟 settings._available_channels 同语义,防止循环 import。"""
     out = {"inbox"}
-    if user.get("feishu_webhook"):
+    if get_feishu_webhooks(user):
         out.add("feishu")
     if user.get("wechat_webhook"):
         out.add("wechat")

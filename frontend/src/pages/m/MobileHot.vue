@@ -109,7 +109,7 @@
       </div>
 
       <!-- 当前类榜单 -->
-      <div v-if="activeCategory">
+      <div v-if="activeCategory" :key="activeCat">
         <div class="bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-xl p-3 mb-3 flex items-center gap-2">
           <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/20">
             <component :is="l1Icon(activeCategory.category)" :size="18" />
@@ -180,7 +180,7 @@ const l1Icon = (c: string): FunctionalComponent => l1IconMap[c] || Folder
 
 const SRC: Record<string, string> = {
   ithome: 'IT之家', '36kr': '36氪', sspai: '少数派', infoq: 'InfoQ',
-  qbitai: '量子位', ifanr: '爱范儿', huxiu: '虎嗅', douban: '豆瓣',
+  qbitai: '量子位', ifanr: '爱范儿', huxiu: '虎嗅', leiphone: '雷锋网', douban: '豆瓣',
   espn_soccer: 'ESPN足球', 'weibo:hot': '微博热搜', zhihu_hot: '知乎热榜',
   bilibili: 'B站', cls: '财联社', wallstreetcn: '华尔街见闻',
 }
@@ -239,8 +239,15 @@ async function loadCategories() {
       { query: { limit: 8, hours: hours.value, threshold: 0 } },
     )
     categoriesData.value = r.categories
-    if (!activeCat.value && r.categories.length) {
-      activeCat.value = r.categories[0].category
+    // 默认选中第一个有数据的类目；若当前 tab 在新数据里仍然有效且非空，则保留
+    if (r.categories.length) {
+      const currentValid = r.categories.find(
+        (c) => c.category === activeCat.value && (c.total_in_window || 0) > 0,
+      )
+      if (!currentValid) {
+        const firstWithData = r.categories.find((c) => (c.total_in_window || 0) > 0)
+        activeCat.value = firstWithData?.category || r.categories[0].category
+      }
     }
   } catch {
     categoriesData.value = []

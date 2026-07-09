@@ -16,6 +16,7 @@ from bson.errors import InvalidId
 
 from auth import verify_token, load_session
 from storage.mongo_writer import get_db
+from notifier import get_feishu_webhooks
 
 
 def _enrich_user(payload: dict) -> dict:
@@ -48,6 +49,8 @@ def _enrich_user(payload: dict) -> dict:
         "nickname":                u.get("nickname", "") or "",
         "avatar_url":              u.get("avatar_url", "") or "",
         "default_channels":        u.get("default_channels", []) or [],
+        # Day 12:飞书支持多群,统一用 get_feishu_webhooks 读取(兼容旧单字段)
+        "feishu_webhooks":         get_feishu_webhooks(u),
         "feishu_webhook":          u.get("feishu_webhook", "") or "",
         "feishu_open_id":          u.get("feishu_open_id", "") or "",
         "wechat_webhook":          u.get("wechat_webhook", "") or "",

@@ -94,38 +94,68 @@ def get_task_run_trace(
     except Exception:
         pass
 
-    skipped = []
+    # 查 source_config 区分"禁用"vs"时间未到"
+    active_set: set[str] = set()
+    try:
+        from storage.source_config import list_sources
+        for sc in list_sources():
+            if sc.get("is_active", True):
+                active_set.add(sc.get("source_id"))
+    except Exception:
+        pass
+
+    skipped_disabled: list[dict] = []
+    skipped_not_due: list[dict] = []
     for sid, name in all_sources.items():
-        if sid not in ran_ids:
-            skipped.append({
+        if sid in ran_ids:
+            continue
+        if sid not in active_set:
+            skipped_disabled.append({
                 "source_id": sid,
-                "status": "skip",
+                "status": "disabled",
                 "display_name": name,
                 "fetched_count": 0,
                 "new_count": 0,
                 "summarized_count": 0,
                 "failed_count": 0,
                 "duration_ms": 0,
-                "error_code": "NOT_RAN",
-                "error_msg": "本次任务未爬取(源未启用或被跳过)",
+                "error_code": "DISABLED",
+                "error_msg": "源已禁用",
+                "started_at": None,
+                "ended_at": None,
+            })
+        else:
+            skipped_not_due.append({
+                "source_id": sid,
+                "status": "not_due",
+                "display_name": name,
+                "fetched_count": 0,
+                "new_count": 0,
+                "summarized_count": 0,
+                "failed_count": 0,
+                "duration_ms": 0,
+                "error_code": "NOT_DUE",
+                "error_msg": "时间未到，本次任务未调度",
                 "started_at": None,
                 "ended_at": None,
             })
 
     ok = sum(1 for r in source_runs if r.get("status") == "ok")
+    partial = sum(1 for r in source_runs if r.get("status") == "partial")
     fail = sum(1 for r in source_runs if r.get("status") == "fail")
-    disabled = sum(1 for r in source_runs if r.get("status") == "disabled")
-    skip = len(skipped)
+    disabled = sum(1 for r in source_runs if r.get("status") == "disabled") + len(skipped_disabled)
+    not_due = len(skipped_not_due)
     total_dur = sum(int(r.get("duration_ms", 0)) for r in source_runs)
     return {
         "task_run": task,
-        "source_runs": source_runs + skipped,
+        "source_runs": source_runs + skipped_disabled + skipped_not_due,
         "summary": {
-            "total_sources": len(source_runs) + skip,
+            "total_sources": len(source_runs) + len(skipped_disabled) + len(skipped_not_due),
             "ok_sources": ok,
+            "partial_sources": partial,
             "fail_sources": fail,
             "disabled_sources": disabled,
-            "skip_sources": skip,
+            "not_due_sources": not_due,
             "total_duration_ms": total_dur,
         },
     }

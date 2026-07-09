@@ -285,12 +285,10 @@ function selectL1(cat: string) {
 
 async function loadHot(cat: string) {
   try {
-    let r = await api<HotResponse>('/hot', {
-      query: { limit: 20, hours: 168, category: cat, threshold: 0 },
+    const r = await api<HotResponse>('/hot', {
+      // 必须显式 mode=category,否则后端会把 category 参数忽略,返回总榜跨类数据
+      query: { limit: 20, hours: 168, mode: 'category', category: cat, threshold: 0 },
     })
-    if (!r.items.length) {
-      r = await api<HotResponse>('/hot', { query: { limit: 20, hours: 168, threshold: 0 } })
-    }
     hotItems.value = r.items
   } catch {
     hotItems.value = []
@@ -341,7 +339,7 @@ async function loadBanner() {
       cfg.categories.map(async (cat) => {
         try {
           const r = await api<HotResponse>('/hot', {
-            query: { limit: cfg.max_per_category, hours: 168, category: cat, threshold: 0 },
+            query: { limit: cfg.max_per_category, hours: 168, mode: 'category', category: cat, threshold: 0 },
           })
           return { category: cat, items: r.items.slice(0, cfg.max_per_category) }
         } catch {

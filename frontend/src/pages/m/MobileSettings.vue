@@ -80,7 +80,7 @@
           <div class="flex-1 text-sm text-slate-900">测试推送通知</div>
           <ChevronRight :size="16" class="text-slate-300" />
         </button>
-        <router-link to="/me/push-history" class="w-full p-3.5 flex items-center gap-3 active:bg-slate-50">
+        <router-link to="/m/me/push-history" class="w-full p-3.5 flex items-center gap-3 active:bg-slate-50">
           <History :size="16" class="text-slate-500" />
           <div class="flex-1 text-sm text-slate-900">推送历史</div>
           <ChevronRight :size="16" class="text-slate-300" />
@@ -103,11 +103,12 @@ import { ChevronLeft, ChevronRight, Bell, Monitor, Send, History, LogOut, Inbox,
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { setDeviceOverride, detectDevice } from '@/lib/device'
+import type { User } from '@/types/api'
 
 const router = useRouter()
 const auth = useAuthStore()
 
-const user = computed(() => auth.user || {})
+const user = computed<User>(() => auth.user || { id: '', username: '' })
 const initial = computed(() => (user.value.username || 'U')[0].toUpperCase())
 
 const channels = [
@@ -132,22 +133,40 @@ function onDeviceChange() {
   router.replace({ path: '/m/me/settings', query: { _: Date.now().toString() } })
 }
 
-function toggleChannel(key: string) {
-  selected.value[key] = !selected.value[key]
-}
-
 async function loadSettings() {
   try {
-    const r = await api<any>('/me/settings')
-    if (r?.channels) selected.value = { ...selected.value, ...r.channels }
+    const r = await api<any>('/settings')
+    const channels = r?.channels || r?.default_channels || []
+    // channels 是字符串数组,转成 {channel: boolean} 映射
+    selected.value = { ...selected.value }
+    channels.forEach((c: string) => { selected.value[c] = true })
   } catch {
     // ignore
   }
 }
 
+async function saveSettings() {
+  try {
+    const defaultChannels = channels
+      .filter(ch => selected.value[ch.key])
+      .map(ch => ch.key)
+    await api('/settings', {
+      method: 'PUT',
+      body: { default_channels: defaultChannels.length ? defaultChannels : ['inbox'] },
+    })
+  } catch {
+    // ignore
+  }
+}
+
+function toggleChannel(key: string) {
+  selected.value[key] = !selected.value[key]
+  saveSettings()
+}
+
 async function testInbox() {
   try {
-    await api('/me/settings/test-inbox', { method: 'POST' })
+    await api('/notifier/test', { method: 'POST', body: { channel: 'inbox' } })
     alert('测试推送已发送')
   } catch (e: any) {
     alert(e?.data?.detail || '测试失败')
