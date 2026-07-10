@@ -7,8 +7,8 @@
           <Trophy :size="18" />
         </span>
         <div>
-          <h1 class="text-lg font-bold text-slate-900">今日排行</h1>
-          <p class="text-[10px] text-slate-500">最近 {{ hours }}h · 跨类均衡</p>
+          <h1 class="text-lg font-bold text-slate-900">冲击榜</h1>
+          <p class="text-[10px] text-slate-500">最近 {{ hours }}h · 擂台模式</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
@@ -163,6 +163,7 @@ import {
 import dayjs from 'dayjs'
 import { api } from '@/lib/api'
 import type { Item } from '@/types/api'
+import { saveFeedIds } from '@/lib/mobile-ui'
 
 const hours = ref(48)
 const overall = ref<Item[]>([])
@@ -258,6 +259,12 @@ async function loadCategories() {
 
 async function loadAll() {
   await Promise.all([loadOverall(), loadCategories()])
+  // 供沉浸阅读上下翻
+  const ids = [
+    ...overall.value.map((x) => x.id),
+    ...categoriesData.value.flatMap((c) => (c.items || []).map((x) => x.id)),
+  ]
+  saveFeedIds([...new Set(ids.filter(Boolean))])
 }
 
 onMounted(loadAll)

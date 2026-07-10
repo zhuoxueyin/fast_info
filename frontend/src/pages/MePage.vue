@@ -47,20 +47,20 @@
       </n-modal>
     </section>
 
-    <!-- ==================== 区域1: 我的订阅 ==================== -->
+    <!-- ==================== 区域1: 我的频道 ==================== -->
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-slate-900">📡 我的订阅 ({{ subs.length }})</h2>
-        <n-button type="primary" size="small" @click="$router.push('/subs/new')">➕ 新增订阅</n-button>
+        <h2 class="text-lg font-semibold text-slate-900">📚 我的频道 ({{ subs.length }})</h2>
+        <n-button type="primary" size="small" @click="$router.push('/subs/new')">➕ 订刊</n-button>
       </div>
 
-      <!-- 订阅列表 -->
+      <!-- 频道列表 -->
       <div v-if="subsLoading" class="text-center text-slate-400 py-6">加载中…</div>
 
       <div v-else-if="!subs.length" class="text-center py-8">
-        <n-empty description="还没有订阅">
+        <n-empty description="还没有频道">
           <template #extra>
-            <n-button type="primary" @click="$router.push('/subs/new')">创建第一个订阅</n-button>
+            <n-button type="primary" @click="$router.push('/subs/new')">创建第一个频道</n-button>
           </template>
         </n-empty>
       </div>
@@ -95,7 +95,7 @@
               <template #trigger>
                 <n-button size="tiny" type="error" ghost>删除</n-button>
               </template>
-              确定删除这个订阅?
+              确定删除这个频道?
             </n-popconfirm>
           </div>
         </div>
@@ -106,7 +106,7 @@
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-semibold text-slate-900 flex items-center gap-2">
-          📬 推送历史
+          ✉️ 晨报记录
           <n-tag size="small" :bordered="false" v-if="recentPush.total">{{ recentPush.total }}</n-tag>
         </h2>
         <n-button size="small" @click="$router.push('/me/push-history')">
@@ -116,7 +116,7 @@
 
       <div v-if="recentPush.loading" class="text-center text-slate-400 py-4 text-sm">加载中…</div>
       <div v-else-if="!recentPush.items.length" class="text-center py-6 text-slate-400 text-sm">
-        还没有推送记录
+        还没有晨报记录
       </div>
       <ul v-else class="space-y-2">
         <li
@@ -128,7 +128,7 @@
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-sm text-slate-900 font-medium truncate">
-                {{ r.subscription_title || '(订阅已删)' }}
+                {{ r.subscription_title || '(频道已删)' }}
               </span>
               <n-tag size="tiny" :type="triggerTagType(r.trigger)" :bordered="false">
                 {{ triggerLabel(r.trigger) }}
@@ -149,7 +149,7 @@
               >✗ {{ chLabel(ch) }}</n-tag>
             </div>
             <div class="text-xs text-slate-400 mt-1">
-              🕒 {{ formatTime(r.sent_at) }} · {{ r.item_count }} 条新内容 ·
+              🕒 {{ formatTime(r.sent_at) }} · {{ r.item_count }} 条新情报 ·
               <span v-if="r.operator && r.operator !== 'auto'">由 {{ r.operator }} 触发</span>
               <span v-else>系统自动</span>
             </div>
@@ -160,7 +160,7 @@
 
     <!-- ==================== 区域2: 推送设置 ==================== -->
     <section class="bg-white rounded-xl border border-slate-200 p-6">
-      <h2 class="text-lg font-semibold text-slate-900 mb-4">⚙️ 推送设置</h2>
+      <h2 class="text-lg font-semibold text-slate-900 mb-4">⚙️ 情报推送设置</h2>
 
       <!-- 飞书群机器人 (Webhook):支持多群 -->
       <div class="mb-6 p-4 bg-slate-50 rounded-lg">
@@ -365,7 +365,7 @@ async function loadSubs() {
     const r = await api<{ items: Subscription[] }>('/subs')
     subs.value = r.items
   } catch (e: any) {
-    msg.error(e?.data?.detail || '加载订阅失败')
+    msg.error(e?.data?.detail || '加载频道失败')
   } finally {
     subsLoading.value = false
   }

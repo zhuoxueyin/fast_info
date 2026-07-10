@@ -1,18 +1,18 @@
 <template>
   <div>
     <div class="flex items-center justify-between mb-4">
-      <h1 class="text-2xl font-bold text-slate-900">📥 我的推送</h1>
+      <h1 class="text-2xl font-bold text-slate-900">✉️ 晨报信封</h1>
       <div class="flex gap-2">
-        <n-button @click="$router.push('/me/push-history')" size="small">查看推送历史 →</n-button>
-        <n-button @click="$router.push('/me')" size="small">← 个人中心</n-button>
+        <n-button @click="$router.push('/me/push-history')" size="small">晨报记录 →</n-button>
+        <n-button @click="$router.push('/me')" size="small">← 我的情报</n-button>
       </div>
     </div>
 
-    <!-- ==================== 推送历史时间线 (Day 9,加在用户「我的推送」页面顶部) ==================== -->
+    <!-- ==================== 晨报记录时间线 ==================== -->
     <section class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-base font-semibold text-slate-900 flex items-center gap-2">
-          🕐 推送历史
+          🕐 晨报记录
           <n-tag v-if="historyStats.total" size="small" :bordered="false">{{ historyStats.total }}</n-tag>
         </h2>
         <div class="flex items-center gap-2">
@@ -27,7 +27,7 @@
 
       <div v-if="historyLoading" class="text-xs text-slate-400 py-2">加载中…</div>
       <div v-else-if="!history.length" class="text-xs text-slate-400 py-3">
-        还没有推送记录。订阅运行后这里会出现详细推送信道 + 内容来源。
+        还没有晨报记录。频道跑起来后，这里会出现推送渠道与内容来源。
       </div>
       <ul v-else class="divide-y divide-slate-100">
         <li
@@ -40,7 +40,7 @@
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-sm font-medium text-slate-900 truncate">
-                {{ r.subscription_title || '(订阅已删)' }}
+                {{ r.subscription_title || '(频道已删)' }}
               </span>
               <n-tag size="tiny" :type="triggerTagType(r.trigger)" :bordered="false">
                 {{ triggerLabel(r.trigger) }}
@@ -98,8 +98,8 @@
     <!-- ==================== 推送内容 items:按订阅维度汇总(Day 9+) ==================== -->
     <section class="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex gap-3 items-center flex-wrap">
       <h2 class="text-sm font-medium text-slate-700">
-        📄 按订阅汇总
-        <span class="text-slate-400">({{ total }} 条 / {{ subscriptionGroups.length }} 个订阅)</span>
+        📄 按频道汇总
+        <span class="text-slate-400">({{ total }} 条 / {{ subscriptionGroups.length }} 个频道)</span>
       </h2>
       <div class="flex-1 flex gap-3 items-center justify-end flex-wrap">
         <n-select v-model:value="filterCategory" :options="categoryOpts" placeholder="类目" clearable class="!w-32" />
@@ -111,7 +111,7 @@
     <div v-if="loading" class="text-center text-slate-400 py-8">加载中…</div>
     <div v-else-if="!subscriptionGroups.length" class="text-center py-12 bg-white rounded-xl border border-slate-200">
       <div class="text-5xl mb-3">📭</div>
-      <div class="text-slate-500">还没有推送内容</div>
+      <div class="text-slate-500">还没有晨报内容</div>
     </div>
 
     <div v-else class="space-y-3">

@@ -1,7 +1,7 @@
 <template>
   <div class="max-w-4xl mx-auto pb-12">
     <div class="flex items-center gap-3 mb-6">
-      <h1 class="text-2xl font-bold text-slate-900">📬 推送历史</h1>
+      <h1 class="text-2xl font-bold text-slate-900">✉️ 晨报记录</h1>
       <button class="text-slate-400 hover:text-slate-700 text-xl leading-none ml-auto" @click="$router.back()">×</button>
     </div>
 

@@ -1,23 +1,23 @@
 <template>
   <div class="max-w-2xl mx-auto pb-12">
     <div class="flex items-center gap-3 mb-6">
-      <h1 class="text-2xl font-bold text-slate-900">新增订阅</h1>
+      <h1 class="text-2xl font-bold text-slate-900">{{ isEdit ? '编辑频道' : '订刊 · 新增频道' }}</h1>
       <button class="text-slate-400 hover:text-slate-700 text-xl leading-none" @click="$router.back()">×</button>
     </div>
 
     <div class="flex items-center mb-8 text-sm">
-      <span :class="step >= 1 ? 'text-emerald-600 font-medium' : 'text-slate-400'">1. 描述意图</span>
+      <span :class="step >= 1 ? 'text-emerald-600 font-medium' : 'text-slate-400'">1. 一句话情报</span>
       <span class="mx-2 text-slate-300">→</span>
       <span :class="step >= 2 ? 'text-emerald-600 font-medium' : 'text-slate-400'">2. 调整规则</span>
       <span class="mx-2 text-slate-300">→</span>
-      <span :class="step >= 3 ? 'text-emerald-600 font-medium' : 'text-slate-400'">3. 保存订阅</span>
+      <span :class="step >= 3 ? 'text-emerald-600 font-medium' : 'text-slate-400'">3. 保存频道</span>
     </div>
 
     <!-- Step 1: 描述意图 -->
     <div v-show="step === 1" class="min-h-[320px]">
       <section class="bg-white rounded-xl border border-slate-200 p-6">
         <label class="text-sm font-medium text-slate-700 mb-2 block">
-          用一句话描述你想关注的内容<span class="text-rose-500">*</span>
+          用一句话描述你要订阅的情报<span class="text-rose-500">*</span>
         </label>
         <n-input
           v-model:value="nl"
@@ -28,7 +28,7 @@
           :disabled="generating"
         />
         <p class="text-xs mt-2" :class="nlError ? 'text-rose-500' : 'text-slate-400'">
-          {{ nlError || '系统会自动识别时间、关键词、分类和推送频率。' }}
+          {{ nlError || '系统会自动识别时间、关键词、分类和推送频率，生成一本情报频道。' }}
         </p>
 
         <div class="mt-6 flex flex-wrap gap-2">
@@ -47,7 +47,7 @@
 
       <div class="flex gap-3 mt-6">
         <n-button class="!flex-1" :disabled="generating" @click="$router.back()">取消</n-button>
-        <n-button type="primary" class="!flex-1" :loading="generating" @click="onGenerate">生成订阅规则</n-button>
+        <n-button type="primary" class="!flex-1" :loading="generating" @click="onGenerate">生成频道规则</n-button>
       </div>
       <p v-if="generating" class="text-center text-xs text-slate-400 mt-4">正在理解你的意图，请稍候…</p>
     </div>
@@ -60,8 +60,8 @@
       </section>
 
       <section class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
-        <label class="text-sm font-medium text-slate-700 mb-2 block">订阅名称</label>
-        <n-input v-model:value="form.title" placeholder="给订阅起个名字" maxlength="30" show-count />
+        <label class="text-sm font-medium text-slate-700 mb-2 block">频道名称</label>
+        <n-input v-model:value="form.title" placeholder="给频道起个名字" maxlength="30" show-count />
       </section>
 
       <section class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
@@ -176,7 +176,7 @@
           {{ isEdit ? '取消' : '上一步' }}
         </n-button>
         <n-button type="primary" class="!flex-1" :loading="saving" @click="onSave">
-          {{ isEdit ? '保存修改' : '保存订阅' }}
+          {{ isEdit ? '保存修改' : '保存频道' }}
         </n-button>
       </div>
     </div>
@@ -184,11 +184,11 @@
     <!-- Step 3: 完成 (仅新建模式) -->
     <div v-if="!isEdit" v-show="step === 3" class="text-center py-12 min-h-[320px]">
       <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl mx-auto mb-4">✓</div>
-      <h2 class="text-xl font-bold text-slate-900 mb-2">订阅已创建</h2>
-      <p class="text-slate-500 mb-8">系统会按你设置的规则自动推送相关内容。</p>
+      <h2 class="text-xl font-bold text-slate-900 mb-2">频道已创建</h2>
+      <p class="text-slate-500 mb-8">系统会按你设置的规则自动推送相关情报。</p>
       <div class="flex gap-3 justify-center">
-        <n-button @click="$router.push('/me')">查看我的订阅</n-button>
-        <n-button type="primary" @click="resetAndNew">再建一个</n-button>
+        <n-button @click="$router.push('/me/subs')">查看我的频道</n-button>
+        <n-button type="primary" @click="resetAndNew">继续订刊</n-button>
       </div>
     </div>
   </div>
@@ -274,12 +274,14 @@ onMounted(async () => {
       applyExistingSub(sub)
       step.value = 2
     } catch (e: any) {
-      msg.error(e?.data?.detail || '加载订阅失败')
+      msg.error(e?.data?.detail || '加载频道失败')
       router.replace('/me/subs')
     }
   } else {
-    // 新建模式: 用默认渠道初始化表单
+    // 新建模式: 用默认渠道初始化表单；支持首页「订成频道」带入 ?nl=
     form.value.channels = [...defaultChannels.value]
+    const qNl = typeof route.query.nl === 'string' ? route.query.nl.trim() : ''
+    if (qNl) nl.value = qNl
   }
 })
 
@@ -504,7 +506,7 @@ async function onGenerate() {
 
 async function onSave() {
   if (!form.value.title.trim()) {
-    msg.warning('请给订阅起个名字')
+    msg.warning('请给频道起个名字')
     return
   }
   saving.value = true
@@ -523,7 +525,7 @@ async function onSave() {
     if (isEdit.value) {
       // 编辑模式: PATCH 后直接回列表,不走 Step 3 成功页
       await patchSub(subId.value, body)
-      msg.success('订阅已更新')
+      msg.success('频道已更新')
       router.replace('/me/subs')
     } else {
       await createSub(body)

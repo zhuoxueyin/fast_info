@@ -7,10 +7,10 @@
           <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-yellow-400 to-orange-500 text-white shadow">
             <Trophy :size="20" />
           </span>
-          今日排行
+          冲击榜
         </h1>
         <p class="text-xs text-slate-500 mt-1.5 ml-11">
-          综合 <b>类目内百分位</b> + <b>时间衰减</b> 打分 · TOP 跨类均衡
+          今日情报擂台 · 综合 <b>类目内百分位</b> + <b>时间衰减</b> · TOP 跨类均衡
         </p>
       </div>
       <div class="flex items-center gap-3">
