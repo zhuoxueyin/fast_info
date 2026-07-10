@@ -6,7 +6,7 @@
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="搜索资讯 · 关键词 · 话题"
+          placeholder="搜索情报 · 关键词 · 实体"
           class="w-full pl-14 pr-6 py-4 text-base rounded-full bg-white border border-slate-200 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 transition placeholder:text-slate-400"
           @keyup.enter="goSearch"
         />
@@ -51,21 +51,31 @@
 
     <section class="mb-6">
       <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="text-xl">🪜</span>
-          <span class="font-semibold text-slate-900">今天要关注什么？</span>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-xl">📡</span>
+          <span class="font-semibold text-slate-900">一句话情报</span>
         </div>
+        <p class="text-xs text-slate-400 mb-3 ml-8">建雷达 = 临时聚合 24h 相关资讯；要长期推送可到「我的频道」订刊</p>
         <div class="flex gap-2">
           <n-input
             v-model:value="topicQuery"
-            placeholder="输入话题，AI 自动聚合 24h 相关资讯"
+            placeholder="例：盯特斯拉和比亚迪 / 王力宏 / 英伟达财报"
             size="medium"
             :disabled="topicCreating"
             @keyup.enter="createNowTopic"
           >
-            <template #prefix><span class="text-slate-400">💭</span></template>
+            <template #prefix><span class="text-slate-400">📡</span></template>
           </n-input>
-          <n-button type="primary" size="medium" :loading="topicCreating" @click="createNowTopic">查询</n-button>
+          <n-button type="primary" size="medium" :loading="topicCreating" @click="createNowTopic">
+            {{ topicCreating ? '锁定中…' : '建雷达' }}
+          </n-button>
+          <n-button
+            size="medium"
+            :disabled="topicCreating || !topicQuery.trim()"
+            @click="goSubscribe"
+          >
+            订成频道
+          </n-button>
         </div>
       </div>
     </section>
@@ -117,8 +127,8 @@
           <h2 class="text-xl font-bold text-slate-900">
             {{ l1Icon(activeL1) }} {{ activeL1 }}
             <span v-if="activeL2 && activeL1 !== '全部'"> · {{ activeL2 }}</span>
-            <span v-if="activeL1 === '全部' && feedMode === 'personalized'" class="text-xs text-emerald-600 font-normal ml-2">✨ 按你的订阅偏好排序</span>
-            <span v-else-if="activeL1 === '全部' && feedMode === 'random'" class="text-xs text-slate-500 font-normal ml-2">🎲 随机打散 · 还没订阅?</span>
+            <span v-if="activeL1 === '全部' && feedMode === 'personalized'" class="text-xs text-emerald-600 font-normal ml-2">✨ 按你的频道偏好排序</span>
+            <span v-else-if="activeL1 === '全部' && feedMode === 'random'" class="text-xs text-slate-500 font-normal ml-2">🎲 随机打散 · 还没订频道?</span>
           </h2>
           <div class="flex bg-slate-100 rounded-full p-0.5 text-xs">
             <button
@@ -147,7 +157,7 @@
 
     <section>
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-bold text-slate-900">📰 最新资讯</h2>
+        <h2 class="text-xl font-bold text-slate-900">📰 最新情报</h2>
       </div>
       <div v-if="latestItems.length" class="grid gap-4 md:grid-cols-3">
         <ItemCard v-for="item in latestItems" :key="item.id" :item="item" compact />
@@ -220,13 +230,18 @@ async function createNowTopic() {
   try {
     const r = await createTopicNow(nl, 12, 48)
     const tid = r.tid
-    const isMobile = location.pathname.startsWith('/m')
-    $router.push(isMobile ? `/m/topic/${tid}` : `/topic/${tid}`)
+    $router.push(`/topic/${tid}`)
   } catch (e: any) {
-    topicMsg.error(e?.data?.detail || '创建临时话题失败')
+    topicMsg.error(e?.data?.detail || '锁定雷达失败')
   } finally {
     topicCreating.value = false
   }
+}
+
+function goSubscribe() {
+  const nl = topicQuery.value.trim()
+  if (!nl) return
+  $router.push({ path: '/subs/new', query: { nl } })
 }
 
 interface BannerGroup {

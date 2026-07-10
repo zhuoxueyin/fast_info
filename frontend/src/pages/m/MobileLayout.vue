@@ -1,16 +1,33 @@
 <template>
-  <div class="ml-shell">
-    <!-- 顶 header - sticky 在视口顶部 -->
-    <header class="ml-header">
-      <div class="flex items-center gap-2">
+  <div class="ml-shell" :class="{ 'ml-shell--immersive': immersive }">
+    <!-- 顶 header -->
+    <header v-if="!immersive" class="ml-header">
+      <div class="flex items-center gap-2 min-w-0">
         <BrandLogo size="sm" />
+        <div class="min-w-0">
+          <div class="text-[13px] font-semibold text-slate-800 leading-tight truncate">{{ headerTitle }}</div>
+          <div class="text-[10px] text-slate-400 leading-tight truncate">{{ headerSub }}</div>
+        </div>
       </div>
-      <button v-if="auth.isLoggedIn" class="text-sm text-slate-500" @click="logout">退出</button>
+      <button
+        v-if="auth.isLoggedIn"
+        class="text-xs text-slate-400 active:text-slate-600 px-2 py-1"
+        @click="logout"
+      >
+        退出
+      </button>
+      <router-link
+        v-else
+        to="/m/login"
+        class="text-xs font-medium text-emerald-600 px-2 py-1"
+      >
+        登录
+      </router-link>
     </header>
 
-    <!-- 中间 main - 独立滚动容器 -->
+    <!-- 中间 main -->
     <div class="ml-main-wrap">
-      <main class="ml-main">
+      <main class="ml-main" :class="{ 'ml-main--immersive': immersive, 'ml-main--flush': flush }">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
@@ -19,33 +36,44 @@
       </main>
     </div>
 
-    <!-- 底 tab - fixed 视口底部 -->
-    <nav class="ml-tabbar">
-      <router-link to="/m" class="tab-link" :class="{ 'tab-active': isActive('/m', true) }">
-        <Home :size="20" /><span>推荐</span>
+    <!-- 底 Tab：今日 / 频道 / 雷达 / 我的 -->
+    <nav v-if="!immersive" class="ml-tabbar">
+      <router-link to="/m" class="tab-link" :class="{ 'tab-active': isTab('today') }">
+        <Newspaper :size="20" stroke-width="2" />
+        <span>今日</span>
       </router-link>
-      <router-link to="/m/hot" class="tab-link" :class="{ 'tab-active': isActive('/m/hot') }">
-        <Flame :size="20" /><span>热门</span>
+      <router-link
+        :to="auth.isLoggedIn ? '/m/channels' : '/m/login'"
+        class="tab-link"
+        :class="{ 'tab-active': isTab('channels') }"
+      >
+        <Library :size="20" stroke-width="2" />
+        <span>频道</span>
       </router-link>
-      <router-link v-if="auth.isLoggedIn" to="/m/me/inbox" class="tab-link" :class="{ 'tab-active': isActive('/m/me/inbox') }">
-        <Bell :size="20" /><span>推送</span>
+      <router-link
+        :to="auth.isLoggedIn ? '/m/radar' : '/m/login'"
+        class="tab-link"
+        :class="{ 'tab-active': isTab('radar') }"
+      >
+        <Radar :size="20" stroke-width="2" />
+        <span>雷达</span>
       </router-link>
-      <router-link v-if="auth.isLoggedIn" to="/m/topics" class="tab-link" :class="{ 'tab-active': isActive('/m/topics') }">
-        <Sparkles :size="20" /><span>话题</span>
-      </router-link>
-      <router-link v-if="auth.isLoggedIn" to="/m/me" class="tab-link" :class="{ 'tab-active': isActive('/m/me', true) }">
-        <User :size="20" /><span>我的</span>
-      </router-link>
-      <router-link v-else to="/m/login" class="tab-link" :class="{ 'tab-active': isActive('/m/login') }">
-        <LogIn :size="20" /><span>登录</span>
+      <router-link
+        :to="auth.isLoggedIn ? '/m/me' : '/m/login'"
+        class="tab-link"
+        :class="{ 'tab-active': isTab('me') }"
+      >
+        <User :size="20" stroke-width="2" />
+        <span>{{ auth.isLoggedIn ? '我的' : '登录' }}</span>
       </router-link>
     </nav>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Home, Flame, Bell, Sparkles, User, LogIn } from 'lucide-vue-next'
+import { Newspaper, Library, Radar, User } from 'lucide-vue-next'
 import { useAuthStore } from '@/store/auth'
 import BrandLogo from '@/components/BrandLogo.vue'
 
@@ -53,9 +81,45 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-function isActive(path: string, exact = false): boolean {
-  if (exact) return route.path === path
-  return route.path === path || route.path.startsWith(path + '/')
+const immersive = computed(() => !!route.meta?.immersive)
+const flush = computed(() => !!route.meta?.flush)
+
+const headerTitle = computed(() => {
+  const p = route.path
+  if (p === '/m' || p === '/m/') return '今日简报'
+  if (p.startsWith('/m/channels') || p.startsWith('/m/me/subs')) return '我的频道'
+  if (p.startsWith('/m/radar') || p.startsWith('/m/topics')) return '情报雷达'
+  if (p.startsWith('/m/hot')) return '冲击榜'
+  if (p.startsWith('/m/me/inbox')) return '晨报'
+  if (p.startsWith('/m/me/settings')) return '设置'
+  if (p.startsWith('/m/me/push-history')) return '推送历史'
+  if (p.startsWith('/m/subs')) return '订阅'
+  if (p.startsWith('/m/search')) return '搜索'
+  if (p.startsWith('/m/me')) return '个人中心'
+  if (p.startsWith('/m/login')) return '登录'
+  return 'fastInfo'
+})
+
+const headerSub = computed(() => {
+  const p = route.path
+  if (p === '/m' || p === '/m/') return '3 分钟刷完今日情报'
+  if (p.startsWith('/m/channels')) return '你的订阅杂志'
+  if (p.startsWith('/m/radar')) return '盯人 · 盯事 · 短期跟踪'
+  if (p.startsWith('/m/hot')) return '全站热度擂台'
+  if (p.startsWith('/m/me/inbox')) return '推送回看台'
+  return '个人化 AI 情报中枢'
+})
+
+function isTab(name: 'today' | 'channels' | 'radar' | 'me'): boolean {
+  const p = route.path
+  if (name === 'today') return p === '/m' || p === '/m/' || p.startsWith('/m/hot') || p.startsWith('/m/search')
+  if (name === 'channels') return p.startsWith('/m/channels') || p.startsWith('/m/me/subs') || p.startsWith('/m/subs')
+  if (name === 'radar') return p.startsWith('/m/radar') || p.startsWith('/m/topics') || p.startsWith('/m/topic')
+  if (name === 'me') {
+    if (p.startsWith('/m/me/subs')) return false
+    return p === '/m/me' || p.startsWith('/m/me/') || p.startsWith('/m/login')
+  }
+  return false
 }
 
 function logout() {
@@ -66,19 +130,6 @@ function logout() {
 </script>
 
 <style scoped>
-/*
- * 关键策略:
- * - .ml-shell 是外层固定视口容器(100dvh)
- * - header sticky top
- * - .ml-main-wrap flex:1 填充中间, 自己有 overflow:hidden
- * - .ml-main 在 .ml-main-wrap 内 overflow-y:auto, 自己滚动
- * - nav fixed bottom-0, 在视口底部, 永远不消失
- *
- * 这样:
- *   - body 不滚(被 .ml-shell 锁住)
- *   - 只有 main 内部滚
- *   - nav 在 viewport 永远贴底
- */
 .ml-shell {
   display: flex;
   flex-direction: column;
@@ -86,10 +137,14 @@ function logout() {
   max-width: 28rem;
   margin: 0 auto;
   height: 100vh;
-  height: 100dvh;       /* iOS 动态视口 */
-  background: #f8fafc;
+  height: 100dvh;
+  background: #f1f5f9;
   position: relative;
-  overflow: hidden;     /* 关键: 锁住 shell 不让外层滚 */
+  overflow: hidden;
+}
+
+.ml-shell--immersive {
+  background: #0f172a;
 }
 
 .ml-header {
@@ -99,73 +154,73 @@ function logout() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: #fff;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid #e2e8f0;
   flex-shrink: 0;
-  height: 56px;        /* 固定 header 高度 */
+  min-height: 56px;
 }
 
 .ml-main-wrap {
-  flex: 1 1 0;          /* flex 短语法: grow=1 shrink=1 basis=0 */
-  min-height: 0;        /* 关键: 让 flex 子元素允许收缩 */
+  flex: 1 1 0;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
 
 .ml-main {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 12px 16px 16px;   /* 底部 padding 给 nav 让位 */
+  inset: 0;
+  padding: 12px 16px calc(72px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
 
+.ml-main--flush {
+  padding-left: 0;
+  padding-right: 0;
+  padding-top: 0;
+}
+
+.ml-main--immersive {
+  padding: 0;
+  background: #0f172a;
+}
+
 .ml-tabbar {
   position: fixed;
   bottom: 0;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 28rem;
   z-index: 30;
   display: flex;
   justify-content: space-around;
-  padding: 8px 0 max(8px, env(safe-area-inset-bottom));  /* iOS 底部安全区 */
-  background: #fff;
+  padding: 6px 0 max(8px, env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
   border-top: 1px solid #e2e8f0;
-  height: 56px;        /* 固定 tabbar 高度 */
-  /* 让 tabbar 在 max-w-md 范围内居中 */
-  pointer-events: auto;
-}
-
-/* tabbar 在宽屏(<28rem) 也要左右对齐 */
-@media (min-width: 28rem) {
-  .ml-tabbar {
-    /* 中间区域对齐: 用 inset + max-width 模拟居中 */
-    max-width: 28rem;
-    margin: 0 auto;
-    /* 但 fixed 元素 margin auto 不工作, 用 left/right 调整 */
-    /* 用 box-shadow 替代边框线 */
-    border-left: 1px solid #e2e8f0;
-    border-right: 1px solid #e2e8f0;
-  }
+  min-height: 56px;
+  box-sizing: border-box;
 }
 
 .tab-link {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 2px;
   font-size: 10px;
-  color: #64748b;
+  color: #94a3b8;
   transition: color 0.15s;
-  padding: 2px 12px;
+  padding: 4px 14px;
   text-decoration: none;
+  font-weight: 500;
 }
 .tab-link:active { transform: scale(0.95); }
-.tab-active { color: #10B981 !important; }
+.tab-active { color: #10b981 !important; }
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.12s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }

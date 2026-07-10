@@ -2,27 +2,29 @@
   <div class="max-w-5xl mx-auto p-6">
     <!-- Header -->
     <div class="mb-6 flex items-center gap-2 text-sm text-slate-500">
-      <router-link to="/" class="hover:text-emerald-600">🏠 首页</router-link>
+      <router-link to="/" class="hover:text-emerald-600">🏠 今日简报</router-link>
       <span>›</span>
-      <span>临时话题</span>
+      <span>情报雷达</span>
     </div>
 
     <header class="mb-6 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl p-6 text-white shadow-lg">
-      <div class="text-xs uppercase tracking-wider opacity-80 mb-2">🪜 我的临时话题</div>
-      <h1 class="text-2xl font-bold mb-2">24h 临时工作区</h1>
-      <p class="text-sm opacity-90 mb-4">短期诉求快速建 dashboard,过期自动清。需要长期跟进 → 一键转订阅。</p>
+      <div class="text-xs uppercase tracking-wider opacity-80 mb-2">📡 情报雷达 · 盯人盯事</div>
+      <h1 class="text-2xl font-bold mb-2">锁定你要跟踪的情报</h1>
+      <p class="text-sm opacity-90 mb-4">输入实体或事件，自动聚合相关资讯；可转成短期跟踪或长期频道。</p>
       <div class="flex flex-wrap gap-3 items-center">
         <n-input
           v-model:value="newNl"
-          placeholder="试用例:「世界杯」「AI 资讯」「王力宏动态」……"
+          placeholder="试：王力宏 / 世界杯 / 英伟达财报"
           size="medium"
           :disabled="creating"
           class="flex-1 min-w-[200px]"
           @keyup.enter="quickCreate"
         >
-          <template #prefix><span class="text-slate-400">💭</span></template>
+          <template #prefix><span class="text-slate-400">📡</span></template>
         </n-input>
-        <n-button type="primary" size="medium" :loading="creating" @click="quickCreate">➕ 创建</n-button>
+        <n-button type="primary" size="medium" :loading="creating" @click="quickCreate">
+          {{ creating ? '锁定中…' : '锁定雷达' }}
+        </n-button>
       </div>
     </header>
 
@@ -41,10 +43,10 @@
       加载中…
     </div>
     <div v-else-if="!filtered.length" class="bg-white rounded-xl border border-slate-200 p-12 text-center">
-      <div class="text-4xl mb-3">🪜</div>
-      <p class="text-slate-600 mb-2">还没有临时话题</p>
-      <p class="text-xs text-slate-400 mb-4">在上面输入一句话,例如「王力宏动态」「世界杯」「火星探测」</p>
-      <p class="text-xs text-slate-400">也可以在 <router-link to="/" class="text-emerald-600 hover:underline">首页</router-link> 创建</p>
+      <div class="text-4xl mb-3">📡</div>
+      <p class="text-slate-600 mb-2">雷达空空</p>
+      <p class="text-xs text-slate-400 mb-4">在上面输入一句话锁定，例如「王力宏」「世界杯」「火星探测」</p>
+      <p class="text-xs text-slate-400">也可以在 <router-link to="/" class="text-emerald-600 hover:underline">今日简报</router-link> 建雷达</p>
     </div>
     <div v-else class="grid gap-3 md:grid-cols-2">
       <article
@@ -57,7 +59,7 @@
           <h3 class="font-semibold text-slate-900 text-base line-clamp-1 flex-1">
             {{ t.title || t.nl_query }}
           </h3>
-          <n-tag v-if="t.converted_to_sub_id" type="success" size="small">✓ 已转订阅</n-tag>
+          <n-tag v-if="t.converted_to_sub_id" type="success" size="small">✓ 已转频道</n-tag>
           <n-tag v-else-if="isExpired(t.expires_at)" type="warning" size="small">⏰ 已过期</n-tag>
           <n-tag v-else type="info" size="small">{{ formatRemain(t.expires_at) }}</n-tag>
         </div>

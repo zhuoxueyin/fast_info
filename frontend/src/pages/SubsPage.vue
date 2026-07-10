@@ -1,9 +1,10 @@
 <template>
   <div>
     <div class="flex items-center justify-between mb-4">
-      <h1 class="text-2xl font-bold text-slate-900">📡 我的订阅 ({{ subs.length }})</h1>
+      <h1 class="text-2xl font-bold text-slate-900">📚 我的频道 ({{ subs.length }})</h1>
       <div class="flex gap-2">
-        <n-button @click="$router.push('/me')">← 个人中心</n-button>
+        <n-button type="primary" @click="$router.push('/subs/new')">➕ 订刊</n-button>
+        <n-button @click="$router.push('/me')">← 我的情报</n-button>
       </div>
     </div>
 
@@ -15,9 +16,9 @@
         :pagination="false"
         :bordered="false"
       />
-      <n-empty v-else description="还没有订阅,去创建一个吧">
+      <n-empty v-else description="还没有频道，用一句话订一本情报杂志">
         <template #extra>
-          <n-button type="primary" @click="$router.push('/subs/new')">新建订阅</n-button>
+          <n-button type="primary" @click="$router.push('/subs/new')">创建第一个频道</n-button>
         </template>
       </n-empty>
     </div>

@@ -7,10 +7,11 @@
         </router-link>
 
         <nav class="flex items-center gap-4 text-sm flex-shrink-0 ml-6">
-          <router-link to="/" class="text-slate-700 hover:text-emerald-600 font-medium">🔥 热点资讯</router-link>
-          <router-link to="/hot" class="text-slate-700 hover:text-emerald-600 font-medium">📊 今日排行</router-link>
-          <router-link v-if="auth.isLoggedIn" to="/me/inbox" class="text-slate-700 hover:text-emerald-600 font-medium">📥 我的推送</router-link>
-          <router-link v-if="auth.isLoggedIn" to="/topics" class="text-slate-700 hover:text-emerald-600 font-medium">🪜 临时话题</router-link>
+          <router-link to="/" class="text-slate-700 hover:text-emerald-600 font-medium">📰 今日简报</router-link>
+          <router-link to="/hot" class="text-slate-700 hover:text-emerald-600 font-medium">🏆 冲击榜</router-link>
+          <router-link v-if="auth.isLoggedIn" to="/me/inbox" class="text-slate-700 hover:text-emerald-600 font-medium">✉️ 晨报信封</router-link>
+          <router-link v-if="auth.isLoggedIn" to="/topics" class="text-slate-700 hover:text-emerald-600 font-medium">📡 情报雷达</router-link>
+          <router-link v-if="auth.isLoggedIn" to="/me/subs" class="text-slate-700 hover:text-emerald-600 font-medium">📚 我的频道</router-link>
         </nav>
 
         <div class="flex-1"></div>
@@ -39,7 +40,7 @@
 
     <n-layout-footer class="bg-white border-t">
       <div class="max-w-[1280px] mx-auto px-6 py-4 text-center text-xs text-slate-500">
-        <span class="font-semibold text-slate-700">fastInfo</span> · 个人化 AI 情报中枢 ·
+        <span class="font-semibold text-slate-700">fastInfo</span> · 个人化 AI 情报中枢 · 3 分钟刷完今日情报 ·
         <a href="/swagger" class="text-emerald-600 hover:underline" target="_blank">Swagger UI</a>
       </div>
     </n-layout-footer>
@@ -56,15 +57,13 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const userMenuOptions = [
-  { label: '个人中心', key: 'me' },
+  { label: '我的情报', key: 'me' },
   { type: 'divider', key: 'd1' },
   { label: '退出登录', key: 'logout' },
 ]
 
 function onUserMenu(key: string) {
-  console.log('[DEBUG] user menu selected key:', key)
   if (key === 'me') {
-    console.log('[DEBUG] navigating to route name: me')
     router.push({ name: 'me' })
   } else if (key === 'logout') {
     auth.logout()

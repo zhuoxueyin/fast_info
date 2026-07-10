@@ -217,12 +217,12 @@ const form = ref({
 const keywordText = ref('')
 
 function goBack() {
-  if (step.value === 2) {
+  if (step.value === 2 && !isEdit.value) {
     step.value = 1
     return
   }
   if (window.history.length > 1) router.back()
-  else router.push('/m/me/subs')
+  else router.push('/m/channels')
 }
 
 function toggleL1(cat: string) {
@@ -283,7 +283,7 @@ async function onSave() {
     } else {
       await createSub(payload)
     }
-    router.push('/m/me/subs')
+    router.push('/m/channels')
   } catch (e: any) {
     alert(e?.data?.detail || '保存失败')
   } finally {
@@ -292,6 +292,12 @@ async function onSave() {
 }
 
 onMounted(async () => {
+  // 从今日「一句话订刊」带入
+  const qNl = typeof route.query.nl === 'string' ? route.query.nl.trim() : ''
+  if (qNl && !isEdit.value) {
+    nl.value = qNl
+  }
+
   if (isEdit.value) {
     try {
       const sub: any = await getSub(subId.value)
@@ -316,7 +322,7 @@ onMounted(async () => {
       step.value = 2
     } catch (e: any) {
       alert(e?.data?.detail || '加载订阅失败')
-      router.replace('/m/me/subs')
+      router.replace('/m/channels')
     }
   }
 })

@@ -1,9 +1,9 @@
 <template>
   <div class="max-w-5xl mx-auto p-6">
     <div class="mb-4 flex items-center gap-2 text-sm text-slate-500">
-      <router-link to="/" class="hover:text-emerald-600">🏠 首页</router-link>
+      <router-link to="/" class="hover:text-emerald-600">🏠 今日简报</router-link>
       <span>›</span>
-      <router-link to="/topics" class="hover:text-emerald-600">临时话题</router-link>
+      <router-link to="/topics" class="hover:text-emerald-600">情报雷达</router-link>
       <span>›</span>
       <span class="line-clamp-1">{{ topic?.parsed?.title || topic?.nl_query || '...' }}</span>
     </div>
@@ -17,17 +17,17 @@
     <!-- Not found / expired -->
     <div v-else-if="!topic" class="text-center text-slate-400 py-12">
       <div class="text-2xl mb-2">🪦</div>
-      <p class="mb-2">话题不存在或已过期(24h TTL 自动清)</p>
+      <p class="mb-2">雷达目标不存在或已过期(24h TTL 自动清)</p>
       <div class="flex gap-2 justify-center">
-        <n-button @click="$router.push('/topics')">临时话题列表</n-button>
-        <n-button @click="$router.push('/')">返回首页</n-button>
+        <n-button @click="$router.push('/topics')">返回雷达</n-button>
+        <n-button @click="$router.push('/')">今日简报</n-button>
       </div>
     </div>
 
     <template v-else>
       <!-- 头部 -->
       <header class="mb-6 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl p-6 text-white shadow-lg">
-        <div class="text-xs uppercase tracking-wider opacity-80 mb-2">🪜 24h 临时话题 · 过期后失效</div>
+        <div class="text-xs uppercase tracking-wider opacity-80 mb-2">📡 情报雷达 · 24h 锁定 · 过期后失效</div>
         <h1 class="text-2xl font-bold mb-2">{{ topic.parsed.title || topic.nl_query }}</h1>
         <p class="text-sm opacity-90 mb-3">"{{ topic.nl_query }}"</p>
         <div class="flex flex-wrap gap-2 text-xs mb-4">
@@ -39,15 +39,15 @@
           <span class="opacity-50">·</span>
           <span class="opacity-80">⏳ 过期于 {{ formatExpiry(topic.expires_at) }}</span>
           <n-button v-if="!topic.converted_to_sub_id" type="primary" size="small" :loading="converting" @click="openConvertModal" class="ml-auto">
-            🔄 持续关注(转订阅)
+            🔄 持续关注(转频道)
           </n-button>
-          <n-tag v-else type="success" size="large" class="ml-auto">✓ 已转为订阅 #{{ topic.converted_to_sub_id }}</n-tag>
+          <n-tag v-else type="success" size="large" class="ml-auto">✓ 已转频道 #{{ topic.converted_to_sub_id }}</n-tag>
         </div>
       </header>
 
       <!-- Items 列表 -->
       <div v-if="topic.items.length">
-        <h2 class="text-lg font-semibold mb-3 text-slate-900">📰 命中内容({{ topic.items.length }})</h2>
+        <h2 class="text-lg font-semibold mb-3 text-slate-900">📰 雷达命中({{ topic.items.length }})</h2>
         <div class="grid gap-4 md:grid-cols-2">
           <ItemCard v-for="item in topic.items" :key="item.id" :item="item" />
         </div>
@@ -56,7 +56,7 @@
     </template>
 
     <!-- 转订阅 Modal(Day 9) -->
-    <n-modal v-model:show="convertModal" preset="card" title="🔄 持续关注这个话题" style="max-width: 540px">
+    <n-modal v-model:show="convertModal" preset="card" title="🔄 把雷达转成频道" style="max-width: 540px">
       <div class="space-y-4">
         <!-- 实体识别提示 -->
         <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
@@ -80,7 +80,7 @@
             </n-radio>
             <n-radio value="long">
               <div class="flex items-center gap-2">
-                <span>📡 长期订阅</span>
+                <span>📡 长期频道</span>
                 <n-tag size="tiny">每天 9 点推送</n-tag>
               </div>
               <div class="text-xs text-slate-500 ml-6 mt-1">一直推,直到你手动停</div>
@@ -106,7 +106,7 @@
         <div class="flex justify-end gap-2">
           <n-button @click="convertModal = false">取消</n-button>
           <n-button type="primary" :loading="converting" @click="confirmConvert">
-            {{ trackMode === 'short' ? `⏰ 转 ${durationDays} 天短期跟踪` : '📡 转长期订阅' }}
+            {{ trackMode === 'short' ? `⏰ 转 ${durationDays} 天短期跟踪` : '📡 转长期频道' }}
           </n-button>
         </div>
       </template>
@@ -163,10 +163,10 @@ async function confirmConvert() {
     const r = await convertTopic(topic.value.tid, opts)
     if (r.converted) {
       const msg2 = r.idempotent
-        ? '↻ 之前已经转过订阅了'
+        ? '↻ 之前已经转过频道了'
         : trackMode.value === 'short'
-          ? `✓ 已建短期订阅 #${r.subscription_id},${opts.duration_days} 天后自动停`
-          : `✓ 已建长期订阅 #${r.subscription_id}`
+          ? `✓ 已建短期跟踪频道 #${r.subscription_id},${opts.duration_days} 天后自动停`
+          : `✓ 已建长期频道 #${r.subscription_id}`
       msg.success(msg2)
       convertModal.value = false
       await load()

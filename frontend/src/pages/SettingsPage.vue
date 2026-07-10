@@ -1,8 +1,8 @@
 <template>
   <div class="max-w-3xl mx-auto">
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold text-slate-900">⚙️ 推送设置</h1>
-      <n-button @click="$router.push('/me')">← 个人中心</n-button>
+      <h1 class="text-2xl font-bold text-slate-900">⚙️ 情报推送设置</h1>
+      <n-button @click="$router.push('/me')">← 我的情报</n-button>
     </div>
 
     <!-- 渠道总览 -->
@@ -98,7 +98,7 @@
     <!-- 默认推送渠道 -->
     <section class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
       <div class="flex items-baseline justify-between mb-3">
-        <h3 class="font-semibold">📡 默认推送渠道（新建订阅时默认勾选）</h3>
+        <h3 class="font-semibold">📡 默认推送渠道（新建频道时默认勾选）</h3>
         <span class="text-xs text-slate-400">未配置的渠道不会显示</span>
       </div>
       <n-checkbox-group v-model:value="form.channels">
