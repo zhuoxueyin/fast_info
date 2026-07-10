@@ -46,6 +46,7 @@ def _to_items_view(items: list[dict]) -> list[dict]:
             "published_at": it.get("published_at"),
             "fetched_at": it.get("fetched_at"),
             "relevance": it.get("relevance", 0.5),
+            "topic_score": it.get("_topic_score"),
             "title_zh": it.get("title_zh"),
             "summary_zh": it.get("summary_zh"),
         })
@@ -68,38 +69,49 @@ def _to_view(doc: dict, items: list[dict] | None = None) -> dict:
 
 @router.post("/now")
 async def create_topic_now(req: TopicNowRequest, user: dict = Depends(require_user)):
-    """NL → 临时话题 → 立刻从 items 库命中并返回"""
+    """NL → 临时话题 → 立刻从 items 库命中并返回
+
+    检索策略(Day 13 实体优先):
+      - core 实体词硬匹配(title/summary),丢掉「明星/歌手」等泛词
+      - 相关度打分 + 标题去重 + 时间窗递进放宽
+    """
+    from retrieval.topic_search import search_items_for_topic, extract_core_terms
+
     # 1. NL 解析(复用订阅解析)
     parsed_sub = await parse_nl_to_subscription(req.nl_query, user_id=user["id"])
+    track_entity = parsed_sub.get("track_entity")
+    # 若 LLM 没吐 track_entity,用 core 抽取兜底
+    if not track_entity:
+        cores = extract_core_terms(req.nl_query, {
+            "title": parsed_sub.get("title"),
+            "keywords": parsed_sub.get("keywords", []),
+        })
+        track_entity = cores[0] if cores else None
+
     parsed = {
         "title": parsed_sub.get("title") or req.nl_query[:15],
         "keywords": parsed_sub.get("keywords", []),
         "categories_l1": parsed_sub.get("categories_l1", []),
         "categories_l2": parsed_sub.get("categories_l2", []),
         "sources": req.sources or parsed_sub.get("sources", ["all"]),
+        "track_entity": track_entity,
     }
-    # 2. 从 items 库检索
-    db = get_db()
-    since = (datetime.now(timezone.utc) - timedelta(hours=req.hours)).isoformat()
-    q: dict = {"fetched_at": {"$gte": since}}
-    if "all" not in parsed["sources"]:
-        q["source"] = {"$in": parsed["sources"]}
-    # 关键词正则 OR
-    if parsed["keywords"]:
-        keyword_clauses = []
-        for kw in parsed["keywords"][:6]:
-            keyword_clauses.append({"title": {"$regex": kw, "$options": "i"}})
-            keyword_clauses.append({"summary": {"$regex": kw, "$options": "i"}})
-        q["$or"] = keyword_clauses
-    # L1 类目(兼容老 category 字段)
-    if parsed["categories_l1"]:
-        l1_clauses = [{"category_l1": {"$in": parsed["categories_l1"]}}, {"category": {"$in": parsed["categories_l1"]}}]
-        if "$or" in q:
-            q["$and"] = [{"$or": q["$or"]}, {"$or": l1_clauses}]
-            del q["$or"]
-        else:
-            q["$or"] = l1_clauses
-    items = list(db["items"].find(q).sort("fetched_at", -1).limit(req.max_items))
+
+    # 2. 实体优先检索(见 retrieval.topic_search)
+    items, search_meta = search_items_for_topic(
+        nl_query=req.nl_query,
+        parsed=parsed,
+        max_items=req.max_items,
+        hours=req.hours,
+        sources=parsed["sources"],
+    )
+    # 把检索元信息挂到 parsed,方便前端/排障(不影响旧字段)
+    parsed["search"] = {
+        "core_terms": search_meta.get("core_terms", []),
+        "hours_used": search_meta.get("hours_used"),
+        "scanned": search_meta.get("scanned", 0),
+    }
+
     # 3. 创建临时话题
     item_ids = [str(it["_id"]) for it in items]
     doc = create_temp_topic(
@@ -120,8 +132,14 @@ async def get_topic(tid: str, user: dict = Depends(require_user)):
         raise HTTPException(403, "not your topic")
     db = get_db()
     try:
-        obj_ids = [ObjectId(i) for i in doc.get("items", []) if ObjectId.is_valid(i)]
-        items = list(db["items"].find({"_id": {"$in": obj_ids}}).sort("fetched_at", -1))
+        raw_ids = [i for i in doc.get("items", []) if ObjectId.is_valid(i)]
+        obj_ids = [ObjectId(i) for i in raw_ids]
+        found = {
+            str(it["_id"]): it
+            for it in db["items"].find({"_id": {"$in": obj_ids}})
+        }
+        # 保持创建时的相关度排序(item_ids 顺序),不要再按 fetched_at 打乱
+        items = [found[i] for i in raw_ids if i in found]
     except Exception:
         items = []
     return _to_view(doc, items)
