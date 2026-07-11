@@ -120,6 +120,9 @@ class SubscribeRequest(BaseModel):
     # Day 7:不传(None) = 后端从 user.default_channels 兜底;传 [] = 视同 None;
     # 传 ['inbox','feishu'] = 后端再按 settings 实际可用过滤一次。
     channels: Optional[List[str]] = None
+    # 订阅实例维度:本订阅推到哪些飞书群(name 列表,对应 user.feishu_webhooks[].name)
+    # 空/不传 + 选了 feishu = 推到用户已配置的全部群(兼容旧订阅)
+    feishu_targets: Optional[List[str]] = None
     interval_min: int = 0               # 自定义间隔(分钟);0=用 cron
     # Day 9:短期跟踪选项(临时话题转订阅默认走 short)
     track_mode: Optional[str] = None    # None / 'long' / 'short'
@@ -137,6 +140,7 @@ class SubscriptionView(BaseModel):
     categories_l1: List[str] = []
     categories_l2: List[str] = []
     channels: List[str] = ["inbox"]
+    feishu_targets: List[str] = []      # 本订阅选定的飞书群 name 列表
     cron_expr: str
     interval_min: int = 0
     next_run_at: Optional[str] = None

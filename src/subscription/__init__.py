@@ -228,6 +228,7 @@ async def parse_nl_to_subscription(
         "categories_l1": parsed["categories_l1"],
         "categories_l2": parsed["categories_l2"],
         "channels": parsed["channels"],
+        "feishu_targets": [],  # 订阅实例维度;创建 API 可覆盖
         "cron_expr": parsed["cron_expr"],
         "interval_min": int(parsed["interval_min"]),
         "max_items": int(parsed["max_items"]),
@@ -550,6 +551,33 @@ async def run_subscription(sub: dict, *, trigger: str = "manual", operator: str 
     }
 
 
+def _user_doc_for_sub_send(user_doc: dict, sub: dict, channels: list[str]) -> dict:
+    """按订阅实例裁剪推送目标。
+
+    飞书:sub.feishu_targets 非空时,只推选定群;空则推用户已配置全部群。
+    其它渠道仍走用户 settings 全局凭证(邮箱 / 企微 / webhook URL)。
+    """
+    send_user = dict(user_doc or {})
+    if "feishu" not in channels:
+        return send_user
+    from notifier import get_feishu_webhooks
+    all_hooks = get_feishu_webhooks(send_user)
+    targets = sub.get("feishu_targets") or []
+    if isinstance(targets, str):
+        targets = [t.strip() for t in targets.split(",") if t.strip()]
+    names = {str(t).strip() for t in targets if t}
+    if names:
+        selected = [h for h in all_hooks if h.get("name") in names]
+        # 指定了目标但一个都匹配不上 → 空列表,FeishuNotifier 会报 no webhook
+        send_user["feishu_webhooks"] = selected
+        send_user["feishu_webhook"] = ""
+    else:
+        # 未指定 → 全部已配置群
+        send_user["feishu_webhooks"] = all_hooks
+        send_user["feishu_webhook"] = ""
+    return send_user
+
+
 async def _render_and_send(user_doc: dict, sub: dict, items: list, channels: list[str]) -> dict:
     """Day 9:返回 {channel: {ok, http_status, error}} 让 push_history 能落库。
 
@@ -561,6 +589,8 @@ async def _render_and_send(user_doc: dict, sub: dict, items: list, channels: lis
     "inbox" 不在 notifier 注册表里(它是 Mongo subscriptions_delivered 实现),
     send_all 看到 inbox 会返 unknown。手工把它映射为 ok(因为 items 已经写过 Mongo,
     = inbox 已经"送达")。
+
+    Day 13:飞书按订阅实例 feishu_targets 过滤群。
     """
     from notifier import send_all
     from .format_push import format_html, format_markdown, format_feishu_card, inbox_url_for
@@ -571,10 +601,12 @@ async def _render_and_send(user_doc: dict, sub: dict, items: list, channels: lis
     body_md    = format_markdown(sub, items, inbox_url)
     card       = format_feishu_card(sub, items, inbox_url)
 
+    send_user = _user_doc_for_sub_send(user_doc, sub, channels)
+
     # 拆分 inbox 和 其他 notifier 渠道
     notifier_channels = [c for c in channels if c != "inbox"]
     results = send_all(
-        user_doc, notifier_channels, title, "",          # content_html = ""(走 keyword)
+        send_user, notifier_channels, title, "",          # content_html = ""(走 keyword)
         items,
         body_md=body_md, body_html=body_html, card=card,
     )

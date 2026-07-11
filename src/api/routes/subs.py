@@ -32,10 +32,12 @@ class NLParseRequest(BaseModel):
 
 class SubscribePatch(BaseModel):
     """Day 4:支持 PATCH 修改订阅(暂停/启用/改渠道/改频率)
-    Day 9:支持改 track_mode/duration_days/track_entity"""
+    Day 9:支持改 track_mode/duration_days/track_entity
+    Day 13:支持改 feishu_targets(订阅实例维度指定飞书群)"""
     is_active: Optional[bool] = None
     title: Optional[str] = None
     channels: Optional[list[str]] = None
+    feishu_targets: Optional[list[str]] = None
     cron_expr: Optional[str] = None
     interval_min: Optional[int] = None
     max_items: Optional[int] = None
@@ -45,6 +47,22 @@ class SubscribePatch(BaseModel):
     track_mode: Optional[str] = None      # 'long' / 'short'
     duration_days: Optional[int] = None   # 改 short 时重算 expires_at
     track_entity: Optional[str] = None
+
+
+def _normalize_feishu_targets(user: dict, targets: list | None) -> list[str]:
+    """只保留用户 settings 里真实存在的飞书群 name。"""
+    if not targets:
+        return []
+    from notifier import get_feishu_webhooks
+    valid = {h["name"] for h in get_feishu_webhooks(user)}
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in targets:
+        name = str(t or "").strip()
+        if name and name in valid and name not in seen:
+            out.append(name)
+            seen.add(name)
+    return out
 
 
 @router.post("/subs/parse")
@@ -78,12 +96,12 @@ async def create_subscription(req: SubscribeRequest, user: dict = Depends(requir
         duration_days=req.duration_days,
     )
     # 用户传了 channels/categories 覆盖解析结果
-    if req.channels:
+    from .settings import _available_channels, CHANNEL_FIELDS
+    avail = _available_channels(user)
+    if req.channels is not None:
         # Day 7 一致性:即便用户传了,也要按 settings 实际可用的过滤一次
         # (勾了"邮件"但没配 SMTP,被静默 reject)
-        from .settings import _available_channels, CHANNEL_FIELDS
-        avail = _available_channels(user)
-        sub["channels"] = [c for c in req.channels if c in avail and c in CHANNEL_FIELDS]
+        sub["channels"] = [c for c in (req.channels or []) if c in avail and c in CHANNEL_FIELDS]
         # 用户全选了不可用的 → 兜底用 default_channels
         if not sub["channels"]:
             defaults = user.get("default_channels") or ["inbox"]
@@ -92,10 +110,12 @@ async def create_subscription(req: SubscribeRequest, user: dict = Depends(requir
         # 兜底(Day 7 一致性):没传 → 用用户全局默认;
         # 没有默认 → 至少给 inbox。
         # 保证入库的 channels 永远是可用渠道,且绝不为空。
-        from .settings import _available_channels, CHANNEL_FIELDS
-        avail = _available_channels(user)
         defaults = user.get("default_channels") or ["inbox"]
         sub["channels"] = [c for c in defaults if c in avail and c in CHANNEL_FIELDS] or ["inbox"]
+
+    # 表单字段覆盖 LLM 解析(前端 Step2 已调过的以用户为准)
+    if req.title and str(req.title).strip():
+        sub["title"] = str(req.title).strip()
     if req.categories_l1:
         sub["categories_l1"] = req.categories_l1
     if req.categories_l2:
@@ -104,6 +124,24 @@ async def create_subscription(req: SubscribeRequest, user: dict = Depends(requir
         sub["keywords"] = req.keywords
     if req.track_entity:
         sub["track_entity"] = req.track_entity
+    sub["max_items"] = int(req.max_items)
+    sub["interval_min"] = int(req.interval_min or 0)
+    # 非 short 跟踪才允许用表单 cron 覆盖(short 在 parse 里已锁 6h)
+    if sub.get("track_mode") != "short" and req.cron_expr:
+        from datetime import datetime, timezone
+        from subscription import _next_run_simple
+        sub["cron_expr"] = req.cron_expr
+        try:
+            sub["next_run_at"] = _next_run_simple(req.cron_expr, datetime.now(timezone.utc)).isoformat()
+        except Exception:
+            pass
+
+    # 订阅实例维度飞书群:仅 channels 含 feishu 时生效
+    if "feishu" in sub["channels"]:
+        sub["feishu_targets"] = _normalize_feishu_targets(user, req.feishu_targets)
+    else:
+        sub["feishu_targets"] = []
+
     sub_id = save_subscription(sub)
     sub["_id"] = ObjectId(sub_id)
     return SubscribeResponse(sub=_to_view(sub), parsed={
@@ -113,6 +151,7 @@ async def create_subscription(req: SubscribeRequest, user: dict = Depends(requir
         "categories_l2": sub.get("categories_l2", []),
         "cron_expr": sub.get("cron_expr"),
         "channels": sub.get("channels", []),
+        "feishu_targets": sub.get("feishu_targets", []),
     })
 
 
@@ -164,9 +203,22 @@ async def patch_my_subscription(sub_id: str, req: SubscribePatch, user: dict = D
         raise HTTPException(status_code=403, detail="非本人订阅,无权操作")
     from storage.mongo_writer import get_db
     from datetime import datetime, timezone, timedelta
+    from .settings import _available_channels, CHANNEL_FIELDS
     update: dict = {}
     for k, v in req.model_dump(exclude_unset=True).items():
         update[k] = v
+    # 渠道按 settings 实际可用过滤
+    if "channels" in update and update["channels"] is not None:
+        avail = _available_channels(user)
+        ch = [c for c in (update["channels"] or []) if c in avail and c in CHANNEL_FIELDS]
+        update["channels"] = ch or ["inbox"]
+    # 飞书群目标:与 channels 联动
+    if "feishu_targets" in update or "channels" in update:
+        final_channels = update.get("channels", sub.get("channels") or ["inbox"])
+        if "feishu" not in final_channels:
+            update["feishu_targets"] = []
+        elif "feishu_targets" in update:
+            update["feishu_targets"] = _normalize_feishu_targets(user, update.get("feishu_targets"))
     # Day 9:改 track_mode → duration_days 时,重算 expires_at
     if update.get("track_mode") == "short" or (update.get("track_mode") is None and sub.get("track_mode") == "short"):
         d = update.get("duration_days")
@@ -361,6 +413,10 @@ def _to_view(d: dict) -> SubscriptionView:
     # 兜底(Day 7):空数组 / 全是 unknown → 给 inbox
     if not channels:
         channels = ["inbox"]
+    feishu_targets = d.get("feishu_targets") or []
+    if isinstance(feishu_targets, str):
+        feishu_targets = [t.strip() for t in feishu_targets.split(",") if t.strip()]
+    feishu_targets = [str(t).strip() for t in feishu_targets if t]
     return SubscriptionView(
         id=str(d.get("_id", "")),
         user_id=str(d.get("user_id", "")),
@@ -371,6 +427,7 @@ def _to_view(d: dict) -> SubscriptionView:
         categories_l1=categories_l1,
         categories_l2=categories_l2,
         channels=channels,
+        feishu_targets=feishu_targets,
         cron_expr=d.get("cron_expr", "0 9 * * *"),
         interval_min=int(d.get("interval_min", 0) or 0),
         next_run_at=d.get("next_run_at"),

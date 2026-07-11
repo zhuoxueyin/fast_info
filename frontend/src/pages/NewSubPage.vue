@@ -155,7 +155,7 @@
       <section class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
         <div class="flex items-baseline justify-between mb-3">
           <label class="text-sm font-medium text-slate-700 block">推送渠道</label>
-          <span class="text-xs text-slate-400">来自 Settings 单字段一致性同步,未配置的渠道不会显示</span>
+          <span class="text-xs text-slate-400">按本订阅配置 · 仅显示 Settings 已就绪的渠道</span>
         </div>
         <n-checkbox-group v-model:value="form.channels" class="!flex !flex-col !gap-2">
           <n-checkbox
@@ -167,8 +167,46 @@
           </n-checkbox>
         </n-checkbox-group>
         <p v-if="!availableChannels.length" class="text-xs text-rose-500 mt-2">
-          当前没配任何推送渠道,请到 Settings 配置。
+          当前没配任何推送渠道,请到「我的 / 设置」配置邮箱、飞书等。
         </p>
+
+        <!-- 飞书:从已配置群里多选,本订阅只推到勾选的群 -->
+        <div
+          v-if="form.channels.includes('feishu')"
+          class="mt-4 pt-4 border-t border-slate-100"
+        >
+          <div class="flex items-baseline justify-between mb-2">
+            <label class="text-sm font-medium text-slate-700">飞书推送群</label>
+            <span class="text-xs text-slate-400">从已配置机器人中选择</span>
+          </div>
+          <n-checkbox-group
+            v-if="feishuOptions.length"
+            v-model:value="form.feishu_targets"
+            class="!flex !flex-col !gap-2"
+          >
+            <n-checkbox
+              v-for="hook in feishuOptions"
+              :key="hook.name"
+              :value="hook.name"
+            >
+              {{ hook.name }}
+            </n-checkbox>
+          </n-checkbox-group>
+          <p v-else class="text-xs text-amber-600">
+            尚未配置飞书机器人,请先到「我的」添加群 webhook。
+          </p>
+          <p v-if="feishuOptions.length && !form.feishu_targets.length" class="text-xs text-slate-400 mt-2">
+            未勾选时将推送到全部已配置群。
+          </p>
+          <div v-if="feishuOptions.length" class="flex gap-2 mt-2">
+            <n-button size="tiny" quaternary @click="form.feishu_targets = feishuOptions.map(h => h.name)">
+              全选
+            </n-button>
+            <n-button size="tiny" quaternary @click="form.feishu_targets = []">
+              清空
+            </n-button>
+          </div>
+        </div>
       </section>
 
       <div class="flex gap-3 mt-6">
@@ -217,14 +255,17 @@ const saving = ref(false)
 
 // Day 7:从后端 /notifier/channels 读,只展示 available=true 的渠道(default 数组同步)
 // 单一来源:用户 settings 没配的渠道,前端压根不显示
+// Day 13:附带 feishu_webhooks,供订阅实例勾选具体飞书群
 type BackendChannel = {
   name: string
   label: string
   required_fields: string[]
   available: boolean
 }
+type FeishuOption = { name: string; webhook: string }
 const availableChannels = ref<BackendChannel[]>([])
 const defaultChannels = ref<string[]>(['inbox'])
+const feishuOptions = ref<FeishuOption[]>([])
 
 async function loadDefaultChannels(): Promise<string[]> {
   try {
@@ -237,6 +278,9 @@ async function loadDefaultChannels(): Promise<string[]> {
       ? r.default_channels
       : ['inbox']
     defaultChannels.value = ch
+    feishuOptions.value = Array.isArray(r?.feishu_webhooks)
+      ? r.feishu_webhooks.filter((h: any) => h?.name && h?.webhook)
+      : []
     return ch
   } catch {
     // 静默失败,保留兜底
@@ -255,6 +299,14 @@ function applyExistingSub(sub: any) {
   form.value.channels = Array.isArray(sub.channels) && sub.channels.length
     ? [...sub.channels]
     : [...defaultChannels.value]
+  // 飞书群:编辑时用订阅已存目标;空则视为全部
+  if (Array.isArray(sub.feishu_targets) && sub.feishu_targets.length) {
+    form.value.feishu_targets = sub.feishu_targets.map(String)
+  } else if ((form.value.channels || []).includes('feishu')) {
+    form.value.feishu_targets = feishuOptions.value.map(h => h.name)
+  } else {
+    form.value.feishu_targets = []
+  }
   const freq = parseCronToFreq(sub.cron_expr)
   form.value.freq_mode = freq.mode
   form.value.hour = freq.hour
@@ -280,6 +332,9 @@ onMounted(async () => {
   } else {
     // 新建模式: 用默认渠道初始化表单；支持首页「订成频道」带入 ?nl=
     form.value.channels = [...defaultChannels.value]
+    form.value.feishu_targets = form.value.channels.includes('feishu')
+      ? feishuOptions.value.map(h => h.name)
+      : []
     const qNl = typeof route.query.nl === 'string' ? route.query.nl.trim() : ''
     if (qNl) nl.value = qNl
   }
@@ -318,6 +373,7 @@ function defaultForm() {
     interval_min: 60,
     max_items: 10,
     channels: ['inbox'] as string[],
+    feishu_targets: [] as string[],
   }
 }
 
@@ -474,12 +530,31 @@ function applyParsed(parsed: any) {
     ? Number(safe.interval_min)
     : freq.interval_min
   next.max_items = Number.isFinite(safe.max_items) ? Number(safe.max_items) : 10
-  // channels 保留用户已在页面上选好的（来自 default_channels），不被 AI 解析覆盖
+  // channels / feishu_targets 保留用户已在页面上选好的，不被 AI 解析覆盖
   next.channels = form.value.channels && form.value.channels.length
     ? [...form.value.channels]
     : [...defaultChannels.value]
+  next.feishu_targets = form.value.feishu_targets?.length
+    ? [...form.value.feishu_targets]
+    : (next.channels.includes('feishu') ? feishuOptions.value.map(h => h.name) : [])
   form.value = next
 }
+
+// 勾选飞书时默认全选已配置群;取消飞书时清空目标
+watch(
+  () => [...form.value.channels],
+  (chs, prev) => {
+    const had = (prev || []).includes('feishu')
+    const has = chs.includes('feishu')
+    if (has && !had) {
+      if (!form.value.feishu_targets.length && feishuOptions.value.length) {
+        form.value.feishu_targets = feishuOptions.value.map(h => h.name)
+      }
+    } else if (!has && had) {
+      form.value.feishu_targets = []
+    }
+  },
+)
 
 async function onGenerate() {
   if (!validateNL()) return
@@ -519,6 +594,9 @@ async function onSave() {
       categories_l2: form.value.categories_l2,
       max_items: form.value.max_items,
       channels: form.value.channels,
+      feishu_targets: form.value.channels.includes('feishu')
+        ? [...form.value.feishu_targets]
+        : [],
       cron_expr: buildCronExpr(),
       interval_min: buildIntervalMin(),
     }
@@ -544,6 +622,9 @@ async function resetAndNew() {
   nl.value = ''
   form.value = defaultForm()
   form.value.channels = [...defaultChannels.value]
+  form.value.feishu_targets = form.value.channels.includes('feishu')
+    ? feishuOptions.value.map(h => h.name)
+    : []
   step.value = 1
 }
 

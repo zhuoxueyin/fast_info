@@ -27,6 +27,8 @@ export interface Subscription {
   categories_l1: string[]
   categories_l2: string[]
   channels: string[]
+  /** 本订阅选定的飞书群 name 列表(对应 settings.feishu_webhooks[].name) */
+  feishu_targets?: string[]
   cron_expr: string
   interval_min: number
   next_run_at?: string
