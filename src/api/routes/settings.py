@@ -232,6 +232,9 @@ async def list_channels(user: dict = Depends(require_user)):
     """
     available = _available_channels(user)
     defaults = user.get("default_channels") or ["inbox"]
+    # 只把 available 的默认渠道留下,避免前端勾了不可用的
+    safe_defaults = [c for c in defaults if c in available] or ["inbox"]
+    feishu_hooks = get_feishu_webhooks(user)
     return {
         "channels": [
             {
@@ -243,5 +246,9 @@ async def list_channels(user: dict = Depends(require_user)):
             for name, fields in CHANNEL_FIELDS.items()
         ],
         "available": sorted(available),                                # 给前端快速遍历
-        "default_channels": defaults if defaults else ["inbox"],      # 给 NewSubPage 初始化用
+        "default_channels": safe_defaults,                             # 给 NewSubPage 初始化用
+        # 订阅实例选飞书群:直接复用用户 settings 里已配置的机器人列表
+        "feishu_webhooks": [
+            {"name": h["name"], "webhook": h["webhook"]} for h in feishu_hooks
+        ],
     }

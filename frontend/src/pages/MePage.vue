@@ -203,11 +203,11 @@
         <p class="text-xs text-slate-400">测试按群维度发送,只推到当前这一行的 webhook。</p>
       </div>
 
-      <!-- 默认推送渠道 -->
+      <!-- 默认推送渠道(仅新建订阅时预勾选;每个订阅可在创建/编辑页单独改) -->
       <div class="mb-4">
         <h3 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-          📡 默认推送渠道
-          <span class="text-xs text-slate-400 font-normal">未配置的渠道不会显示(与 Settings 单字段一致)</span>
+          📡 新建订阅默认渠道
+          <span class="text-xs text-slate-400 font-normal">仅影响新建预勾选 · 每个订阅可单独指定渠道/飞书群</span>
         </h3>
         <n-checkbox-group v-model:value="setting.channels">
           <n-space>

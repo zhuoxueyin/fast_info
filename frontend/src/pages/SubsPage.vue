@@ -70,9 +70,15 @@ const cols: DataTableColumns<Subscription> = [
       : (row.cron_expr || '0 9 * * *'),
   },
   {
-    title: '渠道', key: 'channels', width: 140,
+    title: '渠道', key: 'channels', width: 180,
     render: (row: Subscription) => h('div', { class: 'flex flex-wrap gap-1' },
-      (row.channels || ['inbox']).map(c => h(NTag, { size: 'small' }, () => chLabel(c)))),
+      (row.channels || ['inbox']).map(c => {
+        let label = chLabel(c)
+        if (c === 'feishu' && Array.isArray(row.feishu_targets) && row.feishu_targets.length) {
+          label = `飞书(${row.feishu_targets.length}群)`
+        }
+        return h(NTag, { size: 'small' }, () => label)
+      })),
   },
   {
     title: '启用', key: 'is_active', width: 80,
