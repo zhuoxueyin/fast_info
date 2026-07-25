@@ -128,6 +128,9 @@ class SubscribeRequest(BaseModel):
     track_mode: Optional[str] = None    # None / 'long' / 'short'
     duration_days: Optional[int] = None # 短期订阅天数,默认 7
     track_entity: Optional[str] = None  # 事件/人物实体(可选,优先用 LLM 解析结果)
+    # 匹配模式: keywords=主题订阅(默认) / hot=热点榜单(不靠关键词)
+    match_mode: Optional[str] = None
+    lookback_hours: Optional[int] = None
 
 
 class SubscriptionView(BaseModel):
@@ -147,6 +150,8 @@ class SubscriptionView(BaseModel):
     last_run_at: Optional[str] = None
     is_active: bool
     max_items: int = 10
+    match_mode: str = "keywords"           # keywords / hot
+    lookback_hours: Optional[int] = None
     # Day 9:短期跟踪字段
     track_mode: Optional[str] = "long"     # 'long' / 'short'
     expires_at: Optional[str] = None        # 短期订阅过期时间(ISO)
@@ -239,6 +244,9 @@ class RunSubscriptionResponse(BaseModel):
     matched: int
     delivered: int
     skipped: Optional[str] = None
+    push_recorded: Optional[bool] = None
+    trigger: Optional[str] = None
+    match_mode: Optional[str] = None
 
 
 # ============================================================

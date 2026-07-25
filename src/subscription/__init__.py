@@ -111,6 +111,179 @@ def compute_next_run_at(sub: dict, now: Optional[datetime] = None) -> datetime:
 
 
 # ============================================================
+# 热点榜单订阅 (match_mode=hot)
+# ============================================================
+
+# NL/LLM 常把「每日热点」解析成这些不会出现在正文里的元描述词
+_META_HOT_KEYWORDS = {
+    "热点", "热点新闻", "热门", "热门资讯", "热搜", "今日要闻", "要闻",
+    "突发事件", "舆论焦点", "新闻", "资讯", "动态", "汇总", "每日热点",
+    "今日热点", "热门新闻", "热点资讯", "今日资讯",
+}
+
+
+def _normalize_relevance(val) -> float:
+    """relevance → 0~10。兼容 0~1 / 0~10 / 0~100 / 字符串。"""
+    try:
+        r = float(val)
+    except (TypeError, ValueError):
+        return 5.0
+    if r <= 1.0:
+        r *= 10.0
+    elif r > 10.0:
+        r = r / 10.0
+    return max(0.0, min(10.0, r))
+
+
+def _keywords_are_meta_only(keywords: list) -> bool:
+    """关键词是否全是「热点/要闻」这类元描述(无一实体词)。"""
+    cleaned = [(k or "").strip() for k in (keywords or []) if (k or "").strip()]
+    if not cleaned:
+        return False
+    for k in cleaned:
+        kl = k.lower()
+        if k in _META_HOT_KEYWORDS or kl in _META_HOT_KEYWORDS:
+            continue
+        # 子串命中元词且整体很短 → 仍视为元词
+        if any(m in k for m in ("热点", "热门", "热搜", "要闻", "突发事件", "舆论焦点")) and len(k) <= 8:
+            continue
+        return False
+    return True
+
+
+def should_use_hot_mode(nl_query: str | None, parsed: dict | None = None) -> bool:
+    """判断订阅是否应按「热点榜单」模式跑(不靠 keywords 硬过滤)。"""
+    parsed = parsed or {}
+    if str(parsed.get("match_mode") or "").strip().lower() == "hot":
+        return True
+    # 有明确实体跟踪 → 主题订阅,不走热点榜
+    if parsed.get("track_entity"):
+        return False
+    nl = (nl_query or "").strip()
+    # 「每天/今日 + 热点/热搜/要闻」
+    if re.search(r"(每日|每天|今日).{0,8}(热点|热门|热搜|要闻)", nl):
+        return True
+    if re.search(r"(热点|热门|热搜).{0,6}(汇总|推送|简报|榜|新闻)", nl):
+        # 「AI热点汇总」带垂类词 → 仍可 hot,但保留 categories;无垂类也 hot
+        return True
+    # LLM 把 keywords 全解析成元词
+    if _keywords_are_meta_only(parsed.get("keywords") or []):
+        # 排除「AI热点」「科技热门」这种垂类(NL 里有明确 L1/实体)
+        if re.search(
+            r"(AI|人工智能|科技|体育|财经|汽车|娱乐|足球|篮球|大模型|芯片)",
+            nl,
+            re.I,
+        ):
+            return False
+        return True
+    return False
+
+
+def apply_hot_mode_defaults(sub_or_parsed: dict, nl_query: str | None = None) -> dict:
+    """把订阅/解析结果收敛成 match_mode=hot 的规范形态(原地改并返回)。"""
+    sub_or_parsed["match_mode"] = "hot"
+    sub_or_parsed["keywords"] = []
+    nl = nl_query if nl_query is not None else sub_or_parsed.get("nl_query") or ""
+    # 综合日报:清掉误标的单一 L1(如「其他」);垂类热点保留 categories
+    if re.search(r"(每日|每天|今日).{0,8}(热点|热门|热搜|要闻)", nl) or not (
+        sub_or_parsed.get("categories_l1") or []
+    ):
+        # 仅当 L1 是误标「其他」或空时清空;用户显式多类目保留
+        cats = sub_or_parsed.get("categories_l1") or []
+        if not cats or cats == ["其他"]:
+            sub_or_parsed["categories_l1"] = []
+            sub_or_parsed["categories_l2"] = []
+    # lookback 默认 24h
+    if not sub_or_parsed.get("lookback_hours"):
+        sub_or_parsed["lookback_hours"] = 24
+    # 「每天 N 点」→ 日更 cron(按北京时间转 UTC),关掉 interval 以免 lookback 被压成 1~2h
+    m = re.search(r"每(?:天|日)\s*(\d{1,2})\s*点", nl)
+    if m:
+        hour_cst = max(0, min(23, int(m.group(1))))
+        hour_utc = (hour_cst - 8) % 24
+        sub_or_parsed["cron_expr"] = f"0 {hour_utc} * * *"
+        sub_or_parsed["interval_min"] = 0
+    elif int(sub_or_parsed.get("interval_min") or 0) > 0 and int(sub_or_parsed.get("interval_min") or 0) < 360:
+        # LLM 常给热点订很短 interval;日更语义下改 cron 保底
+        if re.search(r"(每日|每天)", nl):
+            sub_or_parsed["interval_min"] = 0
+            if not sub_or_parsed.get("cron_expr") or sub_or_parsed.get("cron_expr") in ("* * * * *",):
+                sub_or_parsed["cron_expr"] = "0 2 * * *"  # 默认北京 10:00
+    return sub_or_parsed
+
+
+async def _collect_hot_candidates(
+    db,
+    *,
+    lookback_hours: int,
+    max_items: int,
+    sources: list,
+    categories_l1: list | None = None,
+    rel_threshold: float = 7.0,
+    max_per_category: int = 3,
+) -> list:
+    """按与 /api/hot 一致的热度口径取 TOP N(类目均衡)。
+
+    热度分 ≈ (relevance/10) / (age_hours + 4)^1.2
+    先按每 L1 最多 max_per_category 条做均衡,不足再放开补齐。
+    """
+    from taxonomy import normalize_l1
+
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(hours=lookback_hours)).isoformat()
+    q: dict = {"fetched_at": {"$gte": since}}
+    if sources and "all" not in sources:
+        q["source"] = {"$in": list(sources)}
+
+    pool_limit = max(max_items * 40, 200)
+    scored: list = []
+    async for item in db["items"].find(q).sort("fetched_at", -1).limit(pool_limit):
+        rel = _normalize_relevance(item.get("relevance"))
+        if rel < rel_threshold:
+            continue
+        cat_raw = item.get("category_l1") or item.get("category") or ""
+        item_l1 = normalize_l1(cat_raw)
+        if categories_l1 and item_l1 not in categories_l1:
+            continue
+        try:
+            fa = datetime.fromisoformat(str(item.get("fetched_at", "")).replace("Z", "+00:00"))
+            age_h = max(0.0, (now - fa).total_seconds() / 3600.0)
+        except Exception:
+            age_h = float(lookback_hours)
+        hot_score = (rel / 10.0) / ((age_h + 4.0) ** 1.2)
+        item["_hot_score"] = hot_score
+        item["_freshness"] = max(0.0, 1.0 - age_h / float(max(lookback_hours, 1)))
+        item["_boost"] = 0.0
+        item["_l1"] = item_l1
+        scored.append(item)
+
+    scored.sort(key=lambda x: (x.get("_hot_score", 0), x.get("_freshness", 0)), reverse=True)
+
+    per_cat: dict[str, int] = {}
+    out: list = []
+    for it in scored:
+        l1 = it.get("_l1") or "其他"
+        if per_cat.get(l1, 0) >= max_per_category:
+            continue
+        per_cat[l1] = per_cat.get(l1, 0) + 1
+        out.append(it)
+        if len(out) >= max_items:
+            return out
+
+    if len(out) < max_items:
+        seen = {str(x.get("_id", "")) for x in out}
+        for it in scored:
+            iid = str(it.get("_id", ""))
+            if not iid or iid in seen:
+                continue
+            out.append(it)
+            seen.add(iid)
+            if len(out) >= max_items:
+                break
+    return out
+
+
+# ============================================================
 # NL → Subscription
 # ============================================================
 
@@ -146,15 +319,19 @@ async def parse_nl_to_subscription(
                 "  title: 简短标题(15 字以内);人物/事件类优先用实体名,不要加「动态」「最新」等后缀\n"
                 "  keywords: 关键词数组(3-8 个)。**只放实体名及其别名/外文名/常见缩写**,"
                 "例如用户说「王力宏」→ ['王力宏','Wang Leehom','Leehom Wang'];"
-                "**禁止**放入类目泛词(歌手/明星/艺人/音乐人/演员/新闻/动态/最新/资讯 等),"
+                "**禁止**放入类目泛词(歌手/明星/艺人/音乐人/演员/新闻/动态/最新/资讯/热点/热门/要闻 等),"
                 "这些词会导致检索噪声\n"
+                "  match_mode: 'keywords'(默认,主题订阅) 或 'hot'(热点榜单)。"
+                "用户说「每日热点/每天热门/今日热搜/汇总热门新闻」且没有具体实体时,"
+                "必须 match_mode='hot' 且 keywords=[]、categories_l1=[]\n"
                 "  sources: 数据源数组,['all'] 即可\n"
                 "  categories_l1: 一级类目,可选 ['科技', 'AI', '体育', '娱乐', '财经', '汽车', '其他']\n"
                 "  categories_l2: 二级类目,可选 ['大模型', 'AI芯片', 'AI应用', 'AI框架', '机器人', '互联网', '硬件', '数码评测', '科技融资', '开源', '足球', '篮球', '电竞', '影视', '音乐', '明星', '综艺', '动漫', '宏观', 'A股', '美股', '港股', '币圈', '创业', '新能源', '自动驾驶', '新势力', '传统车企']\n"
-                "  cron_expr: cron 表达式,默认 '0 9 * * *'\n"
-                "  max_items: 每次最多取 N 条,默认 10\n"
+                "  cron_expr: cron 表达式,默认 '0 9 * * *'(UTC)。用户说每天N点按北京时间理解\n"
+                "  max_items: 每次最多取 N 条,默认 10;热点汇总可 10-15\n"
                 "  channels: ['inbox'] (默认站内收件箱)\n"
-                "  interval_min: 自定义间隔分钟;0=用 cron\n"
+                "  interval_min: 自定义间隔分钟;0=用 cron。日更热点必须 0\n"
+                "  lookback_hours: 回溯小时,热点汇总默认 24\n"
                 "  track_entity: 事件/人物/主题的**核心实体名**(必须尽量识别)。"
                 "用户只说一个名字时 track_entity 就是该名字本身(如 '王力宏'、'世界杯'、'OpenAI');"
                 "无法识别时输出 null\n\n"
@@ -218,12 +395,20 @@ async def parse_nl_to_subscription(
     parsed.setdefault("max_items", 10)
     parsed.setdefault("interval_min", 0)
     parsed.setdefault("track_entity", None)
+    parsed.setdefault("match_mode", "keywords")
     # 清理 track_entity:null/空串 → None
     if not parsed["track_entity"]:
         parsed["track_entity"] = None
 
+    # 热点榜单兜底:NL/LLM 元词 → match_mode=hot(不靠 keywords 硬过滤)
+    if should_use_hot_mode(nl_query, parsed):
+        apply_hot_mode_defaults(parsed, nl_query)
+
     now = datetime.now(timezone.utc)
-    next_run = _next_run_simple(parsed["cron_expr"], now)
+    try:
+        next_run = _next_run_simple(parsed["cron_expr"], now)
+    except Exception:
+        next_run = now + timedelta(hours=1)
     sub = {
         "user_id": user_id,
         "title": parsed["title"],
@@ -235,8 +420,10 @@ async def parse_nl_to_subscription(
         "channels": parsed["channels"],
         "feishu_targets": [],  # 订阅实例维度;创建 API 可覆盖
         "cron_expr": parsed["cron_expr"],
-        "interval_min": int(parsed["interval_min"]),
+        "interval_min": int(parsed["interval_min"] or 0),
         "max_items": int(parsed["max_items"]),
+        "match_mode": str(parsed.get("match_mode") or "keywords"),
+        "lookback_hours": int(parsed["lookback_hours"]) if parsed.get("lookback_hours") else None,
         "is_active": True,
         "last_run_at": None,
         "next_run_at": next_run.isoformat(),
@@ -249,6 +436,8 @@ async def parse_nl_to_subscription(
         "track_mode": track_mode,
         "track_entity": parsed.get("track_entity"),
     }
+    if sub["lookback_hours"] is None:
+        sub.pop("lookback_hours", None)
     # 短期跟踪:加 expires_at + 缩短 cron
     if track_mode == "short":
         d = duration_days if duration_days and duration_days > 0 else 7
@@ -341,27 +530,36 @@ async def _find_user_doc(db, user_id: str) -> dict | None:
 async def run_subscription(sub: dict, *, trigger: str = "manual", operator: str = "auto") -> dict:
     """
     执行一个订阅(Day 4 升级):
-    - L1 硬过滤 + L2 软权重
+    - match_mode=hot: 按热度榜取 TOP N(不靠 keywords)
+    - match_mode=keywords(默认): L1 硬过滤 + 关键词硬过滤 + L2 软权重
     - 多渠道推送(inbox 默认 + email/feishu/wechat/webhook)
     """
-    keywords = sub.get("keywords", [])
-    sources = sub.get("sources", ["all"])
-    categories = sub.get("categories", [])
-    categories_l1 = sub.get("categories_l1", [])
-    categories_l2 = sub.get("categories_l2", [])
-    channels = sub.get("channels", ["inbox"])
+    keywords = sub.get("keywords", []) or []
+    sources = sub.get("sources", ["all"]) or ["all"]
+    categories = sub.get("categories", []) or []
+    categories_l1 = sub.get("categories_l1", []) or []
+    categories_l2 = sub.get("categories_l2", []) or []
+    channels = sub.get("channels", ["inbox"]) or ["inbox"]
     max_items = int(sub.get("max_items", 10))
     require_all_keywords = bool(sub.get("require_all_keywords", False))
+    user_id = sub.get("user_id", "anonymous")
 
-    # lookback 窗口: 订阅可自定义;否则按频率自动:
-    #   interval/realtime → 跟 interval_min 一致(最少 1h)
-    #   cron daily/weekly → 24h(只看今天的新内容,避免重复推昨天的)
+    # 运行时再兜底一次:老数据「每日热点」+ 元关键词 → 当 hot 跑
+    match_mode = str(sub.get("match_mode") or "keywords").strip().lower()
+    if match_mode != "hot" and should_use_hot_mode(sub.get("nl_query") or sub.get("title") or "", sub):
+        match_mode = "hot"
+
+    # lookback 窗口
     interval_min = int(sub.get("interval_min", 0) or 0)
-    if "lookback_hours" in sub and sub["lookback_hours"]:
+    if sub.get("lookback_hours"):
         lookback_hours = int(sub["lookback_hours"])
+    elif match_mode == "hot":
+        lookback_hours = 24
     elif interval_min > 0:
         lookback_hours = max(1, interval_min // 60)
     else:
+        lookback_hours = 24
+    if match_mode == "hot" and lookback_hours < 12:
         lookback_hours = 24
 
     db = get_async_client()[DEFAULT_DB]
@@ -389,76 +587,94 @@ async def run_subscription(sub: dict, *, trigger: str = "manual", operator: str 
         else:
             channels = ["inbox"]
 
-    # 1. 从 MongoDB 读最近 lookback_hours 小时的 items
-    now_run = datetime.now(timezone.utc)
-    since = (now_run - timedelta(hours=lookback_hours)).isoformat()
-    q: dict = {"fetched_at": {"$gte": since}}
-    if "all" not in sources:
-        q["source"] = {"$in": sources}
+    # 1. 取候选 items
+    scanned = 0
+    if match_mode == "hot":
+        # 热点榜:与 /api/hot 同口径,类目均衡 TOP N
+        max_per_cat = max(1, min(5, max(1, (max_items + 2) // 3)))
+        candidates = await _collect_hot_candidates(
+            db,
+            lookback_hours=lookback_hours,
+            max_items=max_items,
+            sources=sources,
+            categories_l1=categories_l1 or None,
+            rel_threshold=7.0,
+            max_per_category=max_per_cat,
+        )
+        scanned = max(len(candidates), max_items)
+    else:
+        now_run = datetime.now(timezone.utc)
+        since = (now_run - timedelta(hours=lookback_hours)).isoformat()
+        q: dict = {"fetched_at": {"$gte": since}}
+        if "all" not in sources:
+            q["source"] = {"$in": sources}
 
-    candidates = []
-    kws_lower = [k.lower() for k in keywords]
-    seen_ids: set[str] = set()
-    async for item in db["items"].find(q).sort("fetched_at", -1).limit(max_items * 30):
-        iid = str(item.get("_id", ""))
-        if iid in seen_ids:
-            continue
-
-        # 关键词过滤(硬过滤)
-        if keywords:
-            text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
-            if require_all_keywords:
-                hit = all(k in text for k in kws_lower)
-            else:
-                hit = any(k in text for k in kws_lower)
-            if not hit:
+        candidates = []
+        kws_lower = [k.lower() for k in keywords]
+        seen_ids: set[str] = set()
+        async for item in db["items"].find(q).sort("fetched_at", -1).limit(max_items * 30):
+            scanned += 1
+            iid = str(item.get("_id", ""))
+            if iid in seen_ids:
                 continue
 
-        # L1/L2 分类过滤
-        cat_raw = item.get("category", "")
-        from taxonomy import normalize_l1
-        item_l1 = normalize_l1(cat_raw)
-        if categories_l1 and item_l1 not in categories_l1:
-            continue  # L1 不命中 → 硬跳过
+            # 关键词过滤(硬过滤)
+            if keywords:
+                text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+                if require_all_keywords:
+                    hit = all(k in text for k in kws_lower)
+                else:
+                    hit = any(k in text for k in kws_lower)
+                if not hit:
+                    continue
 
-        # 排序权重: L2 软加权 + 新鲜度(越新越高)
-        boost = 0.0
-        if categories_l2 and cat_raw in categories_l2:
-            boost += 0.15
-        if categories and any(c in cat_raw for c in categories):
-            boost += 0.1
-        # 新鲜度: 距 now 的小时数，越小越新；转成 0~1 的衰减分
-        try:
-            fetched_at = datetime.fromisoformat(item.get("fetched_at", "").replace("Z", "+00:00"))
-            age_hours = max(0.0, (now_run - fetched_at).total_seconds() / 3600.0)
-        except Exception:
-            age_hours = float(lookback_hours)
-        # 24h 内 → 0.5~1.0, 48h 内 → 0~0.5; 保证新内容排在旧内容前面
-        freshness = max(0.0, 1.0 - age_hours / float(lookback_hours))
-        item["_boost"] = boost
-        item["_freshness"] = freshness
+            # L1/L2 分类过滤
+            cat_raw = item.get("category", "")
+            from taxonomy import normalize_l1
+            item_l1 = normalize_l1(cat_raw)
+            if categories_l1 and item_l1 not in categories_l1:
+                continue  # L1 不命中 → 硬跳过
 
-        seen_ids.add(iid)
-        candidates.append(item)
-        if len(candidates) >= max_items * 3:
-            break
+            # 排序权重: L2 软加权 + 新鲜度(越新越高)
+            boost = 0.0
+            if categories_l2 and cat_raw in categories_l2:
+                boost += 0.15
+            if categories and any(c in cat_raw for c in categories):
+                boost += 0.1
+            try:
+                fetched_at = datetime.fromisoformat(item.get("fetched_at", "").replace("Z", "+00:00"))
+                age_hours = max(0.0, (now_run - fetched_at).total_seconds() / 3600.0)
+            except Exception:
+                age_hours = float(lookback_hours)
+            freshness = max(0.0, 1.0 - age_hours / float(lookback_hours))
+            item["_boost"] = boost
+            item["_freshness"] = freshness
 
-    # 排序: 新鲜度优先 > L2 boost > relevance
-    # freshness 放第一位保证最新内容优先被推
-    candidates.sort(
-        key=lambda x: (x.get("_freshness", 0), x.get("_boost", 0), x.get("relevance", 0)),
-        reverse=True,
-    )
-    candidates = candidates[:max_items]
+            seen_ids.add(iid)
+            candidates.append(item)
+            if len(candidates) >= max_items * 3:
+                break
+
+        # 排序: 新鲜度优先 > L2 boost > relevance
+        candidates.sort(
+            key=lambda x: (x.get("_freshness", 0), x.get("_boost", 0), x.get("relevance", 0)),
+            reverse=True,
+        )
+        candidates = candidates[:max_items]
 
     if not candidates:
-        return {"scanned": 0, "matched": 0, "delivered": 0, "skipped": "no matches"}
+        return {
+            "scanned": scanned,
+            "matched": 0,
+            "delivered": 0,
+            "skipped": "no matches",
+            "match_mode": match_mode,
+        }
 
     # 2. 跳过已推送 + 同批 / 历史 title_hash 去重
     # 热搜源曾因 URL 追踪参数生成多条"假新 item"(同一话题不同 url_hash),
     # 仅靠 item_id 去重挡不住;用 title_hash 做内容级兜底。
     sub_id = str(sub.get("_id", ""))
-    user_id = sub.get("user_id", "anonymous")
     delivered = db["subscriptions_delivered"]
     delivered_ids: set[str] = set()
     async for d in delivered.find({"subscription_id": sub_id}):
@@ -512,17 +728,15 @@ async def run_subscription(sub: dict, *, trigger: str = "manual", operator: str 
     # 4. 多渠道推送
     push_recorded = False
     if new_items:
-        # 复用第 1 步拉过的 user_doc(避免重复 Mongo 查询)
         if user_doc_for_channels is None:
             user_doc = await _find_user_doc(db, user_id) or {}
         else:
             user_doc = user_doc_for_channels
         has_feishu = bool(user_doc.get('feishu_webhooks')) or bool(user_doc.get('feishu_webhook'))
-        print(f"  [sub run] {sub_id[:8]} channels={channels} feishu={'***' if has_feishu else 'MISSING'} items={len(new_items)}")
+        print(f"  [sub run] {sub_id[:8]} mode={match_mode} channels={channels} feishu={'***' if has_feishu else 'MISSING'} items={len(new_items)}")
         t0 = time.time()
         results = await _render_and_send(user_doc, sub, new_items, channels)
         duration_ms = int((time.time() - t0) * 1000)
-        # Day 9:写 push_history(触发来源 + 渠道结果 + items)
         try:
             from storage.push_history import record_push
             await record_push(
@@ -548,12 +762,14 @@ async def run_subscription(sub: dict, *, trigger: str = "manual", operator: str 
             print(f"  [push_history] write failed (non-fatal): {e}")
 
     return {
-        "scanned": max_items * 5,
+        "scanned": scanned if scanned else max_items * 5,
         "matched": len(candidates),
         "delivered": len(new_items),
         "push_recorded": push_recorded,
         "trigger": trigger,
+        "match_mode": match_mode,
     }
+
 
 
 def _user_doc_for_sub_send(user_doc: dict, sub: dict, channels: list[str]) -> dict:

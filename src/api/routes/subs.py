@@ -44,6 +44,8 @@ class SubscribePatch(BaseModel):
     categories_l1: Optional[list[str]] = None
     categories_l2: Optional[list[str]] = None
     keywords: Optional[list[str]] = None
+    match_mode: Optional[str] = None      # 'keywords' / 'hot'
+    lookback_hours: Optional[int] = None
     track_mode: Optional[str] = None      # 'long' / 'short'
     duration_days: Optional[int] = None   # 改 short 时重算 expires_at
     track_entity: Optional[str] = None
@@ -79,6 +81,8 @@ async def parse_only(req: NLParseRequest, user: dict = Depends(require_user)):
         "max_items": sub.get("max_items", 5),
         "channels": sub.get("channels", ["inbox"]),
         "interval_min": sub.get("interval_min", 0),
+        "match_mode": sub.get("match_mode", "keywords"),
+        "lookback_hours": sub.get("lookback_hours"),
         "nl_query": sub.get("nl_query"),
         "fallback": sub.get("fallback", False),
     }
@@ -124,6 +128,16 @@ async def create_subscription(req: SubscribeRequest, user: dict = Depends(requir
         sub["keywords"] = req.keywords
     if req.track_entity:
         sub["track_entity"] = req.track_entity
+    if req.match_mode in ("keywords", "hot"):
+        sub["match_mode"] = req.match_mode
+        if req.match_mode == "hot":
+            sub["keywords"] = []
+            if not req.categories_l1:
+                sub["categories_l1"] = []
+            if not sub.get("lookback_hours"):
+                sub["lookback_hours"] = 24
+    if req.lookback_hours is not None and int(req.lookback_hours or 0) > 0:
+        sub["lookback_hours"] = int(req.lookback_hours)
     sub["max_items"] = int(req.max_items)
     sub["interval_min"] = int(req.interval_min or 0)
     # 非 short 跟踪才允许用表单 cron 覆盖(short 在 parse 里已锁 6h)
@@ -240,6 +254,12 @@ async def patch_my_subscription(sub_id: str, req: SubscribePatch, user: dict = D
         update["expires_at"] = None
         update["duration_days"] = None
         update["cron_expr"] = "0 9 * * *"
+    # match_mode=hot:清掉元关键词,保证 lookback
+    if update.get("match_mode") == "hot":
+        if "keywords" not in update:
+            update["keywords"] = []
+        if not update.get("lookback_hours") and not sub.get("lookback_hours"):
+            update["lookback_hours"] = 24
     if update:
         update["updated_at"] = datetime.now(timezone.utc).isoformat()
         # cron 改了 → 重算 next_run
@@ -434,6 +454,8 @@ def _to_view(d: dict) -> SubscriptionView:
         last_run_at=d.get("last_run_at"),
         is_active=d.get("is_active", True),
         max_items=d.get("max_items", 10),
+        match_mode=str(d.get("match_mode") or "keywords"),
+        lookback_hours=int(d["lookback_hours"]) if d.get("lookback_hours") else None,
         # Day 9:短期跟踪字段
         track_mode=d.get("track_mode", "long"),
         expires_at=d.get("expires_at"),
