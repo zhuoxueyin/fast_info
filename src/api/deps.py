@@ -54,6 +54,7 @@ def _enrich_user(payload: dict) -> dict:
         "feishu_webhook":          u.get("feishu_webhook", "") or "",
         "feishu_open_id":          u.get("feishu_open_id", "") or "",
         "wechat_webhook":          u.get("wechat_webhook", "") or "",
+        "serverchan_sckey":        u.get("serverchan_sckey", "") or "",
         "webhook_url":             u.get("webhook_url", "") or "",
         "smtp_host":               u.get("smtp_host", "smtp.qq.com"),
         "smtp_port":               u.get("smtp_port", 465),

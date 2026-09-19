@@ -10,6 +10,7 @@ GET  /api/notifier/channels              列出可用渠道 + 需要字段
   - email      邮件 (SMTP 配置)
   - feishu     飞书群机器人 (webhook 地址)
   - wechat     企业微信机器人 (webhook 地址)
+  - serverchan Server酱(微信扫码收通知,免企业微信)
   - webhook    通用 webhook (URL)
 
 存储在 users 集合,user_id 主键,可选。
@@ -38,19 +39,21 @@ DEFAULT_DB = "fastinfo"
 
 # 可用渠道 + 各需要字段(给前端表单用)
 CHANNEL_FIELDS = {
-    "inbox":     [],
-    "email":     ["email", "smtp_host", "smtp_port", "smtp_user", "smtp_pass"],
-    "feishu":    ["feishu_webhooks"],
-    "wechat":    ["wechat_webhook"],
-    "webhook":   ["webhook_url"],
+    "inbox":      [],
+    "email":      ["email", "smtp_host", "smtp_port", "smtp_user", "smtp_pass"],
+    "feishu":     ["feishu_webhooks"],
+    "wechat":     ["wechat_webhook"],
+    "serverchan": ["serverchan_sckey"],
+    "webhook":    ["webhook_url"],
 }
 
 CHANNEL_LABEL = {
-    "inbox":  "站内 Inbox",
-    "email":  "邮件 SMTP",
-    "feishu": "飞书群机器人",
-    "wechat": "企业微信",
-    "webhook": "Webhook",
+    "inbox":      "站内 Inbox",
+    "email":      "邮件 SMTP",
+    "feishu":     "飞书群机器人",
+    "wechat":     "企业微信",
+    "serverchan": "Server酱(微信)",
+    "webhook":    "Webhook",
 }
 
 
@@ -65,6 +68,8 @@ def _available_channels(user: dict) -> set[str]:
         out.add("feishu")
     if user.get("wechat_webhook"):
         out.add("wechat")
+    if user.get("serverchan_sckey"):
+        out.add("serverchan")
     if user.get("webhook_url"):
         out.add("webhook")
     # email 至少要有 收件邮箱 + SMTP 用户(授权码可后填,因为存的是加密 hash,前端未必能展示)
@@ -88,6 +93,7 @@ def _to_view(user: dict) -> dict:
         "feishu_webhooks":           feishu_hooks,
         "feishu_webhook":            (feishu_hooks[0]["webhook"] if feishu_hooks else ""),
         "wechat_webhook":            user.get("wechat_webhook", ""),
+        "serverchan_sckey":          user.get("serverchan_sckey", ""),
         "webhook_url":               user.get("webhook_url", ""),
         "channels":                  user.get("default_channels") or ["inbox"],
     }
@@ -104,6 +110,7 @@ class SettingsUpdate(BaseModel):
     feishu_webhook:       Optional[str] = None  # 兼容旧单字段(会被转成单条列表)
     feishu_webhooks:      Optional[list[dict]] = None  # Day 12:多飞书群机器人
     wechat_webhook:       Optional[str] = None
+    serverchan_sckey:     Optional[str] = None
     webhook_url:          Optional[str] = None
     default_channels:     Optional[list[str]] = None
 
@@ -167,6 +174,8 @@ async def update_my_settings(body: SettingsUpdate, user: dict = Depends(require_
             update["feishu_webhook"] = ""
     if body.wechat_webhook is not None:
         update["wechat_webhook"] = body.wechat_webhook
+    if body.serverchan_sckey is not None:
+        update["serverchan_sckey"] = body.serverchan_sckey.strip()
     if body.webhook_url is not None:
         update["webhook_url"] = body.webhook_url
     if body.default_channels is not None:

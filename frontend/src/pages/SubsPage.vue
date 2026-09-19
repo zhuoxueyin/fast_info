@@ -113,7 +113,7 @@ function formatRemain(iso?: string | null): string {
 }
 
 function chLabel(c: string): string {
-  return { inbox: '站内', email: '邮件', feishu: '飞书', wechat: '企微', webhook: 'Webhook' }[c] || c
+  return { inbox: '站内', email: '邮件', feishu: '飞书', wechat: '企微', serverchan: 'Server酱', webhook: 'Webhook' }[c] || c
 }
 
 async function load() {

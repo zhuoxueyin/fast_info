@@ -129,7 +129,7 @@ function triggerIcon(t: string)  { return TRIGGER_META[t]?.icon ?? '❔' }
 function triggerType(t: string)  { return TRIGGER_META[t]?.tagType ?? 'default' }
 
 const CH_LABEL: Record<string, string> = {
-  inbox: '站内', feishu: '飞书群', email: '邮件', wechat: '企业微信', webhook: 'Webhook',
+  inbox: '站内', feishu: '飞书群', email: '邮件', wechat: '企业微信', serverchan: 'Server酱', webhook: 'Webhook',
 }
 function chLabel(c: string) { return CH_LABEL[c] ?? c }
 
