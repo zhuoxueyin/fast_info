@@ -89,6 +89,13 @@
         <n-form-item label="企业微信机器人 Webhook">
           <n-input v-model:value="form.wechat_webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" />
         </n-form-item>
+        <n-form-item label="Server酱 SendKey(微信扫码收通知)">
+          <n-input v-model:value="form.serverchan_sckey" placeholder="SCTxxxxxx (微信关注 Server酱 公众号获取)" />
+          <p class="text-xs text-slate-400 mt-1">
+            免企业微信,个人微信号直接收。免费版每天 5 条限额。
+            <a href="https://sct.ftqq.com/sendkey" target="_blank" class="text-blue-500 ml-1">点此获取 →</a>
+          </p>
+        </n-form-item>
         <n-form-item label="通用 Webhook">
           <n-input v-model:value="form.webhook_url" placeholder="https://your-server.example/webhook" />
         </n-form-item>
@@ -154,7 +161,7 @@ const form = ref({
   email: '', smtp_host: 'smtp.qq.com', smtp_port: 465,
   smtp_user: '', smtp_pass: '',
   feishu_webhooks: [] as FeishuHook[],
-  wechat_webhook: '', webhook_url: '',
+  wechat_webhook: '', serverchan_sckey: '', webhook_url: '',
   channels: ['inbox'] as string[],
 })
 const loading = ref(false)
@@ -203,6 +210,7 @@ function isConfigured(name: string): boolean {
   if (name === 'email') return !!form.value.email && !!form.value.smtp_user && !!form.value.smtp_pass
   if (name === 'feishu') return form.value.feishu_webhooks.some(h => !!h.webhook)
   if (name === 'wechat') return !!form.value.wechat_webhook
+  if (name === 'serverchan') return !!form.value.serverchan_sckey
   if (name === 'webhook') return !!form.value.webhook_url
   return false
 }
@@ -250,6 +258,7 @@ async function save() {
       smtp_pass: form.value.smtp_pass || undefined,
       feishu_webhooks: form.value.feishu_webhooks.filter(h => !!h.webhook),
       wechat_webhook: form.value.wechat_webhook,
+      serverchan_sckey: form.value.serverchan_sckey,
       webhook_url: form.value.webhook_url,
       default_channels: form.value.channels,
     }

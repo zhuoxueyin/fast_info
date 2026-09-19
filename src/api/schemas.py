@@ -33,6 +33,7 @@ class UserView(BaseModel):
     feishu_webhook: Optional[str] = None
     feishu_webhooks: Optional[list[dict]] = None  # Day 12:多飞书群机器人
     wechat_webhook: Optional[str] = None
+    serverchan_sckey: Optional[str] = None
     webhook_url: Optional[str] = None
 
 

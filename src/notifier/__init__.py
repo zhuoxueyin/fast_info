@@ -176,6 +176,34 @@ class WechatWorkNotifier(Notifier):
 # ============================================================
 # 通用 Webhook
 # ============================================================
+# ============================================================
+# Server酱(微信扫码收通知,免企业微信)
+#   - 个人微信号关注"Server酱"公众号 → 拿到 SendKey
+#   - POST 到 https://sctapi.ftqq.com/{SendKey}.send
+#   - 文档:https://sct.ftqq.com/sendkey
+#   - 限额:免费版每天 5 条(够个人订阅用)
+# ============================================================
+class ServerChanNotifier(Notifier):
+    name = "serverchan"
+
+    def send(
+        self, user, subject, content_html, items, *, body_md=None, body_html=None, card=None,
+    ) -> dict:
+        sendkey = user.get("serverchan_sckey", "").strip()
+        if not sendkey:
+            return {"ok": False, "http_status": None, "error": "no serverchan_sckey"}
+        url = f"https://sctapi.ftqq.com/{sendkey}.send"
+        # Server酱 markdown 限额 ≈ 32KB;订阅截到 4000 字符,与 wechat 渠道对齐
+        body = body_md or content_html or ""
+        payload = {
+            "title": subject[:64],          # 标题 64 字
+            "desp": body[:4000],            # 内容 markdown,支持 # / [link](url) / @user
+            # 自动追加第一条 item 的链接(若有),点击直达原文
+            **({"url": items[0].get("url")} if items and items[0].get("url") else {}),
+        }
+        return _post_webhook(url, payload, "serverchan")
+
+
 class WebhookNotifier(Notifier):
     name = "webhook"
 
@@ -222,10 +250,11 @@ def _post_webhook(url: str, payload: dict, tag: str) -> dict:
 # 注册表
 # ============================================================
 _REGISTRY: dict[str, Notifier] = {
-    "email": EmailNotifier(),
-    "feishu": FeishuNotifier(),
-    "wechat": WechatWorkNotifier(),
-    "webhook": WebhookNotifier(),
+    "email":      EmailNotifier(),
+    "feishu":     FeishuNotifier(),
+    "wechat":     WechatWorkNotifier(),
+    "serverchan": ServerChanNotifier(),
+    "webhook":    WebhookNotifier(),
 }
 
 

@@ -26,6 +26,36 @@
         <div class="flex gap-1 mt-2 flex-wrap">
           <span v-for="kw in s.keywords.slice(0,3)" :key="kw" class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">{{ kw }}</span>
         </div>
+        <!-- 删除按钮:长按弹出确认,符合移动端手势习惯 -->
+        <div class="flex justify-end mt-2 pt-2 border-t border-slate-100">
+          <button
+            class="text-xs text-red-500 active:text-red-700 px-2 py-1"
+            @click="confirmDelete(s)"
+          >删除订阅</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除确认弹窗 -->
+    <div
+      v-if="pendingDelete"
+      class="fixed inset-0 bg-black/40 z-50 flex items-end"
+      @click.self="pendingDelete = null"
+    >
+      <div class="bg-white w-full rounded-t-2xl p-4 space-y-3">
+        <h3 class="font-semibold text-slate-900">删除订阅?</h3>
+        <p class="text-sm text-slate-600">确定要删除「{{ pendingDelete.title }}」吗?推送历史也会一并清理。</p>
+        <div class="flex gap-2">
+          <button
+            class="flex-1 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm"
+            @click="pendingDelete = null"
+          >取消</button>
+          <button
+            class="flex-1 py-2 rounded-lg bg-red-500 text-white text-sm disabled:opacity-50"
+            :disabled="deleting"
+            @click="doDelete"
+          >{{ deleting ? '删除中…' : '确认删除' }}</button>
+        </div>
       </div>
     </div>
   </div>
@@ -38,6 +68,8 @@ import type { Subscription } from '@/types/api'
 
 const subs = ref<Subscription[]>([])
 const loading = ref(true)
+const pendingDelete = ref<Subscription | null>(null)
+const deleting = ref(false)
 
 function formatRemain(iso?: string | null): string {
   if (!iso) return '短期'
@@ -47,6 +79,25 @@ function formatRemain(iso?: string | null): string {
   if (days > 0) return `剩 ${days} 天`
   const hours = Math.floor(diff / 3600000)
   return `剩 ${hours}h`
+}
+
+function confirmDelete(s: Subscription) {
+  pendingDelete.value = s
+}
+
+async function doDelete() {
+  if (!pendingDelete.value || deleting.value) return
+  deleting.value = true
+  const target = pendingDelete.value
+  try {
+    await api(`/subs/${target.id}`, { method: 'DELETE' })
+    subs.value = subs.value.filter(x => x.id !== target.id)
+    pendingDelete.value = null
+  } catch (e: any) {
+    alert(e?.data?.detail || '删除失败')
+  } finally {
+    deleting.value = false
+  }
 }
 
 onMounted(async () => {

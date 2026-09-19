@@ -91,6 +91,20 @@
         <input v-model="form.wechat_webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/..." class="field" />
       </div>
 
+      <!-- Server酱 -->
+      <div class="bg-white rounded-xl border border-slate-200 p-3.5 mb-2">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center">
+            <BellIcon :size="14" class="text-white" />
+          </span>
+          <div class="flex-1">
+            <div class="text-sm font-medium text-slate-900">Server酱(微信)</div>
+            <div class="text-[11px] text-slate-500">{{ form.serverchan_sckey ? '已就绪' : '个人微信扫码收通知,免企业微信' }}</div>
+          </div>
+        </div>
+        <input v-model="form.serverchan_sckey" placeholder="SCTxxxxxx (关注 Server酱 公众号获取)" class="field" />
+      </div>
+
       <!-- Webhook -->
       <div class="bg-white rounded-xl border border-slate-200 p-3.5 mb-2">
         <div class="flex items-center gap-2 mb-2">
@@ -206,7 +220,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ChevronLeft, ChevronRight, Bell, Monitor, Send, History, LogOut,
-  Inbox, Mail, MessageSquare, Send as SendIcon, Globe,
+  Inbox, Mail, MessageSquare, Send as SendIcon, Globe, Bell as BellIcon,
 } from 'lucide-vue-next'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
@@ -228,6 +242,7 @@ const form = ref({
   smtp_pass_set: false,
   feishu_webhooks: [] as FeishuHook[],
   wechat_webhook: '',
+  serverchan_sckey: '',
   webhook_url: '',
 })
 
@@ -277,6 +292,7 @@ function refreshAvailable() {
   if (form.value.email && form.value.smtp_user) s.add('email')
   if (form.value.feishu_webhooks.some(h => h.webhook?.trim())) s.add('feishu')
   if (form.value.wechat_webhook?.trim()) s.add('wechat')
+  if (form.value.serverchan_sckey?.trim()) s.add('serverchan')
   if (form.value.webhook_url?.trim()) s.add('webhook')
   availableSet.value = s
   // 去掉不可用的默认勾选
@@ -303,6 +319,7 @@ async function loadSettings() {
         }))
       : []
     form.value.wechat_webhook = settings?.wechat_webhook || ''
+    form.value.serverchan_sckey = settings?.serverchan_sckey || ''
     form.value.webhook_url = settings?.webhook_url || ''
 
     availableSet.value = new Set(
@@ -328,6 +345,7 @@ async function saveCredentials() {
       smtp_user: form.value.smtp_user,
       feishu_webhooks: form.value.feishu_webhooks.filter(h => h.webhook?.trim()),
       wechat_webhook: form.value.wechat_webhook,
+      serverchan_sckey: form.value.serverchan_sckey,
       webhook_url: form.value.webhook_url,
       default_channels: Object.entries(selected.value)
         .filter(([, on]) => on)
