@@ -184,15 +184,13 @@ def apply_hot_mode_defaults(sub_or_parsed: dict, nl_query: str | None = None) ->
     sub_or_parsed["match_mode"] = "hot"
     sub_or_parsed["keywords"] = []
     nl = nl_query if nl_query is not None else sub_or_parsed.get("nl_query") or ""
-    # 综合日报:清掉误标的单一 L1(如「其他」);垂类热点保留 categories
-    if re.search(r"(每日|每天|今日).{0,8}(热点|热门|热搜|要闻)", nl) or not (
-        sub_or_parsed.get("categories_l1") or []
-    ):
-        # 仅当 L1 是误标「其他」或空时清空;用户显式多类目保留
-        cats = sub_or_parsed.get("categories_l1") or []
-        if not cats or cats == ["其他"]:
-            sub_or_parsed["categories_l1"] = []
-            sub_or_parsed["categories_l2"] = []
+    # 综合日报:仅当 L1 显式等于 ["其他"](LLM 误标)时清掉 categories
+    # —— 不能因 LLM 漏填 categories_l1 就降级到 hot mode 把 keywords 清空,
+    # 「GPT/Claude 进展」「特朗普动态」这种有实体的订阅不该被吞。
+    cats = sub_or_parsed.get("categories_l1") or []
+    if cats == ["其他"]:
+        sub_or_parsed["categories_l1"] = []
+        sub_or_parsed["categories_l2"] = []
     # lookback 默认 24h
     if not sub_or_parsed.get("lookback_hours"):
         sub_or_parsed["lookback_hours"] = 24
@@ -204,8 +202,10 @@ def apply_hot_mode_defaults(sub_or_parsed: dict, nl_query: str | None = None) ->
         sub_or_parsed["cron_expr"] = f"0 {hour_utc} * * *"
         sub_or_parsed["interval_min"] = 0
     elif int(sub_or_parsed.get("interval_min") or 0) > 0 and int(sub_or_parsed.get("interval_min") or 0) < 360:
-        # LLM 常给热点订很短 interval;日更语义下改 cron 保底
-        if re.search(r"(每日|每天)", nl):
+        # 仅在"每日热点汇总"语义下才把 interval 改成 cron 兜底
+        # —— 不能简单看"每日/每天"就吞,「每隔 300 分钟关注 AI」这种
+        # 高频监控订阅不该被改写。
+        if re.search(r"(每日|每天).{0,8}(热点|热门|热搜|要闻)", nl):
             sub_or_parsed["interval_min"] = 0
             if not sub_or_parsed.get("cron_expr") or sub_or_parsed.get("cron_expr") in ("* * * * *",):
                 sub_or_parsed["cron_expr"] = "0 2 * * *"  # 默认北京 10:00
