@@ -45,6 +45,10 @@ export async function patchSub(id: string, body: any) {
   return authFetch(`/api/subs/${id}`, { method: 'PATCH', body })
 }
 
+export async function deleteSub(id: string) {
+  return authFetch(`/api/subs/${id}`, { method: 'DELETE' })
+}
+
 // ============================================================
 // 话题
 // ============================================================

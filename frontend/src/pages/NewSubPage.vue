@@ -210,6 +210,9 @@
       </section>
 
       <div class="flex gap-3 mt-6">
+        <n-button v-if="isEdit" type="error" ghost @click="onDelete">
+          删除订阅
+        </n-button>
         <n-button class="!flex-1" @click="onCancel">
           {{ isEdit ? '取消' : '上一步' }}
         </n-button>
@@ -218,6 +221,25 @@
         </n-button>
       </div>
     </div>
+
+    <!-- 删除确认弹窗(仅编辑模式) -->
+    <n-modal
+      v-model:show="showDeleteConfirm"
+      preset="card"
+      title="删除订阅"
+      style="max-width: 420px"
+      :bordered="false"
+    >
+      <p class="text-sm text-slate-600 mb-4">
+        确定要删除这个订阅吗?删除后无法恢复,推送历史也会被清理。
+      </p>
+      <div class="flex gap-2 justify-end">
+        <n-button @click="showDeleteConfirm = false">取消</n-button>
+        <n-button type="error" :loading="deleting" @click="confirmDelete">
+          确认删除
+        </n-button>
+      </div>
+    </n-modal>
 
     <!-- Step 3: 完成 (仅新建模式) -->
     <div v-if="!isEdit" v-show="step === 3" class="text-center py-12 min-h-[320px]">
@@ -236,9 +258,9 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  NInput, NInputNumber, NButton, NSelect, NCheckbox, NCheckboxGroup, useMessage,
+  NInput, NInputNumber, NButton, NSelect, NCheckbox, NCheckboxGroup, NModal, useMessage,
 } from 'naive-ui'
-import { parseSub, createSub, getSub, patchSub, api } from '@/lib/api'
+import { parseSub, createSub, getSub, patchSub, deleteSub, api } from '@/lib/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -252,6 +274,9 @@ const step = ref(1)
 const nl = ref('')
 const generating = ref(false)
 const saving = ref(false)
+// 删除订阅(仅编辑模式可见)
+const showDeleteConfirm = ref(false)
+const deleting = ref(false)
 
 // Day 7:从后端 /notifier/channels 读,只展示 available=true 的渠道(default 数组同步)
 // 单一来源:用户 settings 没配的渠道,前端压根不显示
@@ -492,8 +517,12 @@ function buildCronExpr(): string {
 }
 
 function buildIntervalMin(): number {
+  // interval 模式:用表单值
   if (form.value.freq_mode === 'interval') return form.value.interval_min || 60
+  // realtime:5 分钟一查(实时推送)
   if (form.value.freq_mode === 'realtime') return form.value.interval_min || 5
+  // daily / weekly:由 cron 控制,interval_min=0 让 _next_run_simple 走 cron 分支
+  // (避免 daily 订阅被强制每 N 分钟跑一次,把 lookback 压成 1~2h)
   return 0
 }
 
@@ -635,6 +664,26 @@ function onCancel() {
   } else {
     // 新建模式: 返回 Step 1 描述意图
     step.value = 1
+  }
+}
+
+function onDelete() {
+  // 先弹确认弹窗(防误触)
+  showDeleteConfirm.value = true
+}
+
+async function confirmDelete() {
+  if (!subId.value || deleting.value) return
+  deleting.value = true
+  try {
+    await deleteSub(subId.value)
+    msg.success('订阅已删除')
+    showDeleteConfirm.value = false
+    router.replace('/me/subs')
+  } catch (e: any) {
+    msg.error(e?.data?.detail || '删除失败')
+  } finally {
+    deleting.value = false
   }
 }
 </script>
