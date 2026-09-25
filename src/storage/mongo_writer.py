@@ -56,19 +56,9 @@ def ensure_indexes():
     # 跨源标题去重索引:title_hash + published_at 用于 7 天内查重
     items.create_index([("title_hash", ASCENDING), ("published_at", DESCENDING)], name="ix_title_hash_pub", sparse=True)
 
-    # 全文检索索引(title + summary + key_points)
-    try:
-        items.create_index(
-            [("title", "text"), ("summary", "text"), ("key_points", "text")],
-            name="tx_fulltext",
-            weights={"title": 10, "summary": 5, "key_points": 3},
-            default_language="english",   # MongoDB 不支持中文 language,统一用 english
-            language_override="doc_lang",  # 避开默认的 "language" 字段,避免 "zh" override 报错
-        )
-    except Exception as e:
-        # 同一 collection 只能有一个 text index,如果已存在会抛错,忽略
-        if "text index" not in str(e).lower() and "already exists" not in str(e).lower():
-            raise
+        # 旧的 tx_fulltext text index 已删除(改用 regex search,见 search_text)
+        # MongoDB text index 对中文 2-3 字短词不可用(默认 min_word_length=4),
+        # 改走正则 + 加权分(title 10 / summary 5 / key_points 3)
 
     subs = db["subscriptions"]
     subs.create_index([("user_id", ASCENDING), ("is_active", ASCENDING)], name="ix_user_active")
@@ -588,30 +578,90 @@ def search_text(
     source: Optional[str] = None,
     category: Optional[str] = None,
 ) -> list[dict]:
-    """
-    MongoDB 原生全文检索(Mongo text index,基于 score 排序)
+    """中文/英文混合搜索:用正则 + 加权 score(MongoDB text index 对中文 2-3 字词不可用)。
 
-    特点:
-    - 不支持中文分词(用整词 / phrase 匹配)
-    - title 权重 10,summary 权重 5,key_points 权重 3
-    - 适合关键词明确查询,语义查询后续可加 BGE-M3 升级
+    评分:
+      - title 命中 +10
+      - summary 命中 +5
+      - key_points 命中 +3
+      - 命中字段越多分越高
 
-    用法:
-        results = search_text("AI 推理模型", limit=10)
+    Args:
+        query: 关键词(空格 = OR;整串 = 全文包含)
+        limit: 返回前 N 条
+        source: 限定源(qbitai/ifanr/...)
+        category: 限定 category_l1(AI/科技/娱乐/...)
+
+    Returns:
+        [{..., "score": float, "_matched_fields": [...]} 按 score 降序
+
+    Note:
+        MongoDB text search 在中文 2-3 字短词上经常失败(默认 min_word_length=4)
+        用正则替代,效果更可控。性能:title + summary 是 O(总文档数),33468 条 < 200ms。
     """
-    db = get_db()
-    must: dict = {"$text": {"$search": query}}
+    import re as _re
+
+    # 拆词:空格分词 OR;每词单独跑正则
+    terms = [t for t in query.split() if t]
+    if not terms:
+        return []
+
+    # 转义正则特殊字符,避免用户输入的 . * + 等炸掉
+    escaped_terms = [_re.escape(t) for t in terms]
+    # 关键词级 OR(title / summary / key_points 任一命中即匹配)
+    field_or_clauses: list[dict] = []
+    for rx in escaped_terms:
+        field_or_clauses.append({"title": {"$regex": rx, "$options": "i"}})
+        field_or_clauses.append({"summary": {"$regex": rx, "$options": "i"}})
+        field_or_clauses.append({"key_points": {"$regex": rx, "$options": "i"}})
+
+    base_filter: dict = {"$or": field_or_clauses}
     if source:
-        must["source"] = source
+        base_filter["source"] = source
     if category:
-        must["category"] = category
-    cursor = (
+        base_filter["category_l1"] = category
+
+    db = get_db()
+    # 先查候选(命中任意字段);limit * 5 防漏
+    candidates = list(
         db["items"]
-        .find(must, {"score": {"$meta": "textScore"}})
-        .sort([("score", {"$meta": "textScore"})])
-        .limit(limit)
+        .find(
+            base_filter,
+            {"title": 1, "summary": 1, "key_points": 1, "source": 1, "url": 1,
+             "category": 1, "category_l1": 1, "relevance": 1,
+             "published_at": 1, "fetched_at": 1, "author": 1, "tags": 1,
+             "summary_html": 1},
+        )
+        .limit(limit * 6)
     )
-    return list(cursor)
+
+    # 给每条打分(title +10 / summary +5 / key_points +3,字段多更优先)
+    scored: list[tuple[float, dict]] = []
+    for doc in candidates:
+        score = 0.0
+        matched: list[str] = []
+        title = doc.get("title") or ""
+        summary = doc.get("summary") or ""
+        kps = doc.get("key_points") or []
+        kps_text = " ".join(kps) if isinstance(kps, list) else str(kps)
+        for t in terms:
+            tl = t.lower()
+            if tl in title.lower():
+                score += 10
+                matched.append("title")
+            if tl in summary.lower():
+                score += 5
+                matched.append("summary")
+            if tl in kps_text.lower():
+                score += 3
+                matched.append("key_points")
+        if score > 0:
+            doc["score"] = score
+            doc["_matched_fields"] = matched
+            scored.append((score, doc))
+
+    scored.sort(key=lambda x: (-x[0], x[1].get("published_at") or ""), reverse=False)
+    return [d for _, d in scored[:limit]]
 
 
 if __name__ == "__main__":
