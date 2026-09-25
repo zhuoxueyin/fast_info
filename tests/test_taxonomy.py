@@ -86,3 +86,61 @@ class TestL1FromText:
     def test_entertainment(self):
         assert _l1_from_text("新电影票房破纪录") == "娱乐"
         assert _l1_from_text("演唱会门票秒空") == "娱乐"
+
+    def test_anime(self):
+        """动漫 L1:ACG 文化(动画/漫画/二次元)"""
+        assert _l1_from_text("进击的巨人完结") == "动漫"
+        assert _l1_from_text("海贼王最新漫画") == "动漫"
+        assert _l1_from_text("原神新角色是二次元风格") == "游戏"  # 优先游戏(原神)
+        assert _l1_from_text("新番动画评分") == "动漫"
+        assert _l1_from_text("声优见面会") == "动漫"
+        assert _l1_from_text("cosplay 大赛") == "动漫"
+
+    def test_game(self):
+        """游戏 L1:所有游戏(PC/主机/手游/电竞/产业)"""
+        assert _l1_from_text("原神 4.5 版本更新") == "游戏"
+        assert _l1_from_text("PS5 Pro 发布") == "游戏"
+        assert _l1_from_text("英雄联盟 S14 总决赛") == "游戏"
+        assert _l1_from_text("任天堂 Switch 2") == "游戏"
+        assert _l1_from_text("王者荣耀新赛季") == "游戏"
+        assert _l1_from_text("暴雪新游戏发布") == "游戏"
+
+    def test_game_not_other(self):
+        """回归保护:游戏相关不能被识别为"科技"(避免芯片抢戏)"""
+        assert _l1_from_text("Steam 夏季特卖") == "游戏"
+        assert _l1_from_text("SteamDeck 评测") == "游戏"
+
+    def test_legacy_map_game_and_anime(self):
+        """legacy map 测试:游戏/动漫从娱乐拆出去"""
+        from taxonomy import normalize_l1
+        # 游戏 → 游戏(不是娱乐)
+        assert normalize_l1("游戏") == "游戏"
+        assert normalize_l1("电竞") == "游戏"
+        assert normalize_l1("原神") == "游戏"
+        # 动漫相关 → 动漫
+        assert normalize_l1("动漫") == "动漫"
+        assert normalize_l1("动画") == "动漫"
+        assert normalize_l1("漫画") == "动漫"
+        assert normalize_l1("二次元") == "动漫"
+        # 娱乐(娱乐圈)仍归娱乐
+        assert normalize_l1("明星") == "娱乐"
+        assert normalize_l1("演唱会") == "娱乐"
+        assert normalize_l1("综艺") == "娱乐"
+        assert normalize_l1("票房") == "娱乐"
+        assert normalize_l1("奥斯卡") == "娱乐"
+
+    def test_suggest_l2_anime(self):
+        """suggest_l2:动漫 L2 建议"""
+        from taxonomy import suggest_l2
+        assert suggest_l2("动漫", "海贼王最新连载") == "漫画"
+        assert suggest_l2("动漫", "新番评分出炉") == "动画"
+        assert suggest_l2("动漫", "声优见面会") == "声优"
+
+    def test_suggest_l2_game(self):
+        """suggest_l2:游戏 L2 建议"""
+        from taxonomy import suggest_l2
+        assert suggest_l2("游戏", "原神 4.5 更新") == "手游"
+        assert suggest_l2("游戏", "PS5 Pro 上市") == "主机游戏"
+        assert suggest_l2("游戏", "Steam 夏季特卖") == "PC游戏"
+        assert suggest_l2("游戏", "英雄联盟 S14 总决赛") == "电竞"
+        assert suggest_l2("游戏", "暴雪新游戏") == "游戏产业"
