@@ -42,6 +42,17 @@ RSS_SOURCES = {
     # web_location=333.934 是 B 站给站内跳转用的"白名单参数",绕过裸 API 风控
     "bilibili":  ("B站热门",     "https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all&web_location=333.934"),
     "douban":    ("豆瓣热门",    "https://www.douban.com/feed/review/movie"),
+    # 娱乐圈(明星/影视/音乐/演唱会)—— 中文源基本死光,用英文主流娱乐新闻
+    "bbc_ent":         ("BBC Entertainment",      "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml"),
+    "billboard":       ("Billboard 音乐",         "https://www.billboard.com/feed/"),
+    "variety":         ("Variety 影视",           "https://variety.com/feed/"),
+    "deadline":        ("Deadline 影视",          "https://deadline.com/feed/"),
+    "hollywood":       ("Hollywood Reporter",     "https://www.hollywoodreporter.com/feed/"),
+    # ----- 游戏 -----
+    # 国际游戏媒体(国内 RSS 全部 404 / 反爬)
+    "ign":             ("IGN",                    "https://feeds.feedburner.com/ign/all"),
+    "pcgamer":         ("PC Gamer",               "https://www.pcgamer.com/rss/"),
+    "rockpapershotgun":("Rock Paper Shotgun",     "https://www.rockpapershotgun.com/feed"),
 
     # ----- 热榜 (Day 6v2 新增) -----
     # zhihu_hot 走 RSSHub 镜像,补财经/科技话题;30 条/次
@@ -154,7 +165,13 @@ SOURCE_L1_DEFAULT = {
     "qbitai": "AI",
     "wallstreetcn": "财经", "cls": "财经",
     "sina_sports_soccer": "体育",
+    # 娱乐(娱乐圈:明星/影视/音乐/演唱会)
     "bilibili": "娱乐", "douban": "娱乐",
+    "bbc_ent": "娱乐", "billboard": "娱乐", "variety": "娱乐",
+    "deadline": "娱乐", "hollywood": "娱乐",
+    # 游戏(所有游戏相关)
+    "ign": "游戏", "pcgamer": "游戏", "rockpapershotgun": "游戏",
+    # 其他
     "zhihu_hot": "科技",
     "weibo:1887344341": "财经", "weibo:1643971635": "其他",
     "weibo:hot": "其他",

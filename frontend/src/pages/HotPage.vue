@@ -217,7 +217,8 @@ import { api } from '@/lib/api'
 import type { Item } from '@/types/api'
 
 // ===================== state =====================
-const hours = ref(48)
+// 榜单默认展示窗口:24h(覆盖昨日到今天,符合"今榜"语义)
+const hours = ref(24)
 const overall = ref<Item[]>([])
 const categoriesData = ref<Array<{ category: string; icon: string; total_in_window: number; items: Item[] }>>([])
 const activeCat = ref<string>('')

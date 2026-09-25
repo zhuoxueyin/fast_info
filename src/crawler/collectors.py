@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 import asyncio
+import json
+import logging
 import re
 import time
 from datetime import datetime, timezone
@@ -281,6 +283,235 @@ async def fetch_bilibili_hot(
     return items
 
 
+async def _fetch_weibo_hot_with_cookie(limit: int = 20) -> list[Item]:
+    """用 admin.weibo_cookie 抓 m.weibo.cn 实时热搜榜(免 Visitor)。"""
+    import json as _json
+    from datetime import datetime, timezone
+    from storage.mongo_writer import get_sync_client, DEFAULT_DB
+    _log = logging.getLogger("fastinfo.crawler")
+
+    # 1. 读 admin cookie
+    try:
+        db = get_sync_client()[DEFAULT_DB]
+        u = db["users"].find_one({"username": "admin"}, {"weibo_cookie": 1})
+        cookie = (u or {}).get("weibo_cookie", "").strip()
+    except Exception as e:
+        _log.warning("[weibo_hot] 读 cookie 失败:%s", e)
+        return []
+
+    if not cookie:
+        return []
+
+    # 2. 抓 m.weibo.cn 实时热搜接口
+    url = "https://m.weibo.cn/api/container/getIndex?containerid=106003type%3D25%26t%3D3%26disable_hot%3D1%26filter_type%3Drealtimehot"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Referer": "https://m.weibo.cn/",
+        "Cookie": cookie,
+        "Accept": "application/json, text/plain, */*",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as c:
+            resp = await c.get(url, headers=headers)
+            if resp.status_code != 200:
+                _log.warning("[weibo_hot] m.weibo.cn HTTP %s", resp.status_code)
+                return []
+            payload = _json.loads(resp.text, strict=False)
+    except Exception as e:
+        _log.warning("[weibo_hot] 请求失败:%s", e)
+        return []
+
+    # 3. 解析 card_group → Item
+    if not isinstance(payload, dict) or payload.get("ok") != 1:
+        return []
+
+    cards = payload.get("data", {}).get("cards", [])
+    if not cards:
+        return []
+    cg = cards[0].get("card_group", [])
+    if not cg:
+        return []
+
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    items: list[Item] = []
+    for i, row in enumerate(cg[:limit]):
+        desc = (row.get("desc") or "").strip()
+        scheme = (row.get("scheme") or "").strip()
+        if not desc:
+            continue
+        # scheme 转 https://m.weibo.cn/search?... 搜索页
+        item_url = scheme or f"https://m.weibo.cn/search?keyword={desc}"
+        item_url = canonicalize_url(item_url) or item_url
+        items.append(Item(
+            id=_make_id("weibo_hot", item_url or desc),
+            source="weibo_hot",
+            source_url="https://m.weibo.cn/",
+            url=item_url,
+            title=f"[热搜#{i+1}] {desc}",
+            title_hash=_title_hash(desc),
+            summary_html="",
+            content_html="",
+            published_at=None,
+            fetched_at=fetched_at,
+            author=None,
+            tags=["weibo_hot", "hot_ranking"],
+        ))
+    return items
+
+
+async def _fetch_weibo_search(query: str, limit: int = 10) -> list[Item]:
+    """用 admin.weibo_cookie 搜 m.weibo.cn 关键词(娱乐/游戏/动漫聚焦)。
+
+    query: URL-encode 过的搜索词(中文用 %E5%91%A8 这种格式)
+    """
+    import json as _json
+    import urllib.parse
+    from datetime import datetime, timezone
+    from storage.mongo_writer import get_sync_client, DEFAULT_DB
+    _log = logging.getLogger("fastinfo.crawler")
+
+    try:
+        db = get_sync_client()[DEFAULT_DB]
+        u = db["users"].find_one({"username": "admin"}, {"weibo_cookie": 1})
+        cookie = (u or {}).get("weibo_cookie", "").strip()
+    except Exception as e:
+        _log.warning("[weibo_search] 读 cookie 失败:%s", e)
+        return []
+
+    if not cookie:
+        return []
+
+    # containerid: 100103type%3D1%26q%3D{query}%26t%3D1
+    q_enc = urllib.parse.quote(query)
+    url = f"https://m.weibo.cn/api/container/getIndex?containerid=100103type%3D1%26q%3D{q_enc}%26t%3D1"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Referer": f"https://m.weibo.cn/search?containerid=100103type%3D1&q={q_enc}",
+        "Cookie": cookie,
+        "Accept": "application/json, text/plain, */*",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as c:
+            resp = await c.get(url, headers=headers)
+            if resp.status_code != 200:
+                _log.warning("[weibo_search] HTTP %s", resp.status_code)
+                return []
+            payload = _json.loads(resp.text, strict=False)
+    except Exception as e:
+        _log.warning("[weibo_search] 请求失败:%s", e)
+        return []
+
+    if not isinstance(payload, dict) or payload.get("ok") != 1:
+        return []
+
+    cards = payload.get("data", {}).get("cards", [])
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    items: list[Item] = []
+    for card in cards:
+        cg = card.get("card_group", [])
+        for row in cg:
+            if len(items) >= limit:
+                break
+            mblog = row.get("mblog", {})
+            text = _strip_html(mblog.get("text", "") or "")
+            if not text:
+                continue
+            text = text[:140]  # 截断避免过长
+            user = mblog.get("user", {}) or {}
+            screen_name = user.get("screen_name", "")
+            bid = mblog.get("bid", "")
+            item_url = f"https://m.weibo.cn/detail/{bid}" if bid else ""
+            if not item_url:
+                continue
+            item_url = canonicalize_url(item_url) or item_url
+            items.append(Item(
+                id=_make_id(f"weibo_search:{query}", item_url),
+                source=f"weibo_search:{query}",
+                source_url=url,
+                url=item_url,
+                title=text,
+                title_hash=_title_hash(text),
+                summary_html=f"@{screen_name}" if screen_name else "",
+                content_html="",
+                published_at=mblog.get("created_at"),
+                fetched_at=fetched_at,
+                author=screen_name or None,
+                tags=["weibo_search", query],
+            ))
+        if len(items) >= limit:
+            break
+    return items
+
+
+async def fetch_toutiao_feed(
+    client: httpx.AsyncClient,
+    source_id: str,
+    name: str,
+    category: str,
+    limit: int = 15,
+) -> list[Item]:
+    """今日头条分类 feed(娱乐/游戏)。
+
+    category: news_entertainment / news_game
+    公开 JSON,无需登录。限流较宽松,失败 retry 1 次。
+    """
+    import json as _json
+    from datetime import datetime, timezone
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    url = f"https://www.toutiao.com/api/pc/feed/?category={category}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Referer": "https://www.toutiao.com/",
+        "Accept": "application/json, text/plain, */*",
+    }
+    _log = logging.getLogger("fastinfo.crawler")
+    payload = None
+    for attempt in (1, 2):
+        try:
+            resp = await client.get(url, headers=headers, timeout=10.0)
+            resp.raise_for_status()
+            text = resp.text
+            # 头条 JSON 里偶有控制字符,strict=False 容忍
+            payload = _json.loads(text, strict=False)
+            break
+        except Exception as e:
+            _log.warning("[%s] 尝试 %d 失败:%s", source_id, attempt, e)
+            if attempt == 2:
+                return []
+    if not isinstance(payload, dict):
+        return []
+    lst = payload.get("data") or []
+    items: list[Item] = []
+    for row in lst[:limit]:
+        title = (row.get("title") or "").strip()
+        article_url = row.get("article_url") or row.get("url") or row.get("source_url") or ""
+        if not title:
+            continue
+        if not article_url:
+            continue
+        # 头条 article_url 形如 "//www.toutiao.com/group/7664610063473967670/" 需补 https:
+        if article_url.startswith("//"):
+            article_url = "https:" + article_url
+        article_url = canonicalize_url(article_url) or article_url
+        source_name = (row.get("source") or "").strip()
+        abstract = (row.get("abstract") or "").strip()
+        items.append(Item(
+            id=_make_id(source_id, article_url or title),
+            source=source_id,
+            source_url=url,
+            url=article_url,
+            title=title,
+            title_hash=_title_hash(title),
+            summary_html=abstract[:280] if abstract else f"来源:{source_name}" if source_name else "",
+            content_html="",
+            published_at=None,
+            fetched_at=fetched_at,
+            author=source_name or None,
+            tags=[source_id, category],
+        ))
+    return items
+
+
 async def fetch_weibo_hot(
     client: httpx.AsyncClient,
     source_id: str,
@@ -288,13 +519,23 @@ async def fetch_weibo_hot(
     feed_url: str,
     limit: int = 15,
 ) -> list[Item]:
-    """Day 6v2:微博热搜词热榜 — 实测走头条公开 JSON 热点 API。
-    原 m.weibo.cn container API 被风控 302,改用 toutiao.com/hot-event/hot-board 公开 JSON。
-    response.data[].{Title, Url, HotValue, QueryWord}
+    """微博热搜词热榜(用户登录 cookie 模式)。
+
+    - 优先用 admin.users.weibo_cookie 直连 m.weibo.cn API
+    - 失败兜底走 toutiao hot-board(公开 JSON,无需登录)
     """
     import json as _json
     from datetime import datetime, timezone
     fetched_at = datetime.now(timezone.utc).isoformat()
+
+    # 1. 优先:m.weibo.cn + cookie
+    items = await _fetch_weibo_hot_with_cookie(limit)
+    if items:
+        return items
+
+    # 2. 兜底:头条 hot-board(原 Day 6v2 行为)
+    _log = logging.getLogger("fastinfo.crawler")
+    _log.warning("[weibo_hot] cookie 不可用,fallback 到头条 hot-board")
     headers = {
         "User-Agent": USER_AGENT,
         "Referer": "https://www.toutiao.com/",
@@ -302,18 +543,13 @@ async def fetch_weibo_hot(
     }
     resp = await client.get(feed_url, headers=headers, timeout=10.0)
     resp.raise_for_status()
-    text = resp.text
-    payload = _json.loads(text)
-    if not isinstance(payload, dict):
-        raise ValueError(f"hot API non-dict payload: {str(payload)[:80]}")
-    # 头条格式可能是 {data: [...]} 或顶层是 list
+    payload = _json.loads(resp.text)
     if isinstance(payload.get("data"), list):
         lst = payload["data"]
     elif isinstance(payload, list):
         lst = payload
     else:
         lst = []
-    items: list[Item] = []
     for i, row in enumerate(lst[:limit]):
         title = (row.get("Title") or row.get("title") or row.get("word") or row.get("query") or "").strip()
         url = row.get("Url") or row.get("url") or row.get("scheme") or ""
@@ -321,12 +557,9 @@ async def fetch_weibo_hot(
             continue
         if not url:
             url = f"https://www.toutiao.com/search/?keyword={title}"
-        # 剥 log_pb 等追踪参数,保证同一 topic 的 url_hash 稳定
         url = canonicalize_url(url) or url
         hot = row.get("HotValue") or row.get("hot") or row.get("score") or 0
-        summary = ""
-        if hot:
-            summary = f"热度:{hot}"
+        summary = f"热度:{hot}" if hot else ""
         items.append(Item(
             id=_make_id(source_id, url or title),
             source=source_id,
@@ -614,6 +847,13 @@ async def fetch_one_source(
             elif kind == "weibo_hot":
                 url = RSS_HOT_URLS.get("weibo_hot", "")
                 return await fetch_weibo_hot(client, source_id, display, url, lim)
+            elif kind == "weibo_search":
+                # weibo_search_ent 等:从 source_config.platform_config.search_query 读搜索词
+                query = (cfg.get("platform_config") or {}).get("search_query") or display
+                return await _fetch_weibo_search(query, lim)
+            elif kind == "toutiao_feed":
+                category = (cfg.get("platform_config") or {}).get("category") or "news_entertainment"
+                return await fetch_toutiao_feed(client, source_id, display, category, lim)
             elif kind == "x_user":
                 _, handle = source_id.split(":", 1)
                 return await fetch_x_user_multi(client, handle, display, lim)
