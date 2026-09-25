@@ -221,7 +221,7 @@ const q = ref('')
 const nl = ref('')
 const nlBusy = ref<false | 'radar' | 'sub'>(false)
 
-const l1Tabs = ['全部', '科技', 'AI', '财经', '体育', '娱乐', '汽车', '其他']
+const l1Tabs = ['全部', '科技', 'AI', '财经', '体育', '娱乐', '动漫', '游戏', '汽车', '其他']
 const activeL1 = ref('全部')
 
 const feed = ref<any[]>([])
