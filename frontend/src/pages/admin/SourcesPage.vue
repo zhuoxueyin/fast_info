@@ -289,7 +289,7 @@ const schedulePresetOptions = [
   { label: '✋ 仅手动', value: 0 },
 ]
 
-const l1Options = ['科技', 'AI', '体育', '娱乐', '财经', '汽车', '其他'].map(v => ({ label: v, value: v }))
+const l1Options = ['科技', 'AI', '体育', '娱乐', '动漫', '游戏', '财经', '汽车', '其他'].map(v => ({ label: v, value: v }))
 
 const failingSources = computed(() => {
   if (!healthSummary.value?.items) return 0

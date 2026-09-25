@@ -175,9 +175,10 @@ import { api, createTopicNow } from '@/lib/api'
 import type { Item, HotResponse, TodayResponse, BannerConfig } from '@/types/api'
 import ItemCard from '@/components/ItemCard.vue'
 
-const l1Tabs = ['全部', '科技', 'AI', '体育', '娱乐', '财经', '汽车', '其他']
+const l1Tabs = ['全部', '科技', 'AI', '体育', '娱乐', '动漫', '游戏', '财经', '汽车', '其他']
 const l1IconMap: Record<string, string> = {
-  全部: '🌐', 科技: '🔬', AI: '🤖', 体育: '⚽', 娱乐: '🎬', 财经: '💰', 汽车: '🚗', 其他: '📂',
+  全部: '🌐', 科技: '🔬', AI: '🤖', 体育: '⚽', 娱乐: '🎬', 动漫: '🎨', 游戏: '🎮',
+  财经: '💰', 汽车: '🚗', 其他: '📂',
 }
 const l1Icon = (c: string) => l1IconMap[c] || '📂'
 const iconOf = l1Icon

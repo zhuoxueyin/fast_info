@@ -266,7 +266,7 @@ const examples = [
   '每天下午 6 点汇总新能源和自动驾驶动态',
 ]
 
-const l1List = ['科技', 'AI', '体育', '娱乐', '财经', '汽车', '其他']
+const l1List = ['科技', 'AI', '体育', '娱乐', '动漫', '游戏', '财经', '汽车', '其他']
 
 const freqOptions = [
   { label: '实时', value: 'realtime' },

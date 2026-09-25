@@ -3,6 +3,7 @@
  */
 import {
   Cpu, Sparkles, TrendingUp, Trophy, Music, Car, HelpCircle, Newspaper, Flame,
+  Palette, Gamepad2,
 } from 'lucide-vue-next'
 import dayjs from 'dayjs'
 
@@ -12,6 +13,8 @@ export const L1_PALETTE: Record<string, string> = {
   财经: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
   体育: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)',
   娱乐: 'linear-gradient(135deg, #EC4899 0%, #DB2777 100%)',
+  动漫: 'linear-gradient(135deg, #F472B6 0%, #A855F7 100%)',
+  游戏: 'linear-gradient(135deg, #06B6D4 0%, #0EA5E9 100%)',
   汽车: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
   其他: 'linear-gradient(135deg, #64748B 0%, #475569 100%)',
 }
@@ -22,6 +25,8 @@ export const L1_SOLID: Record<string, string> = {
   财经: '#F59E0B',
   体育: '#EF4444',
   娱乐: '#EC4899',
+  动漫: '#F472B6',
+  游戏: '#06B6D4',
   汽车: '#3B82F6',
   其他: '#64748B',
 }
@@ -32,6 +37,8 @@ const L1_ICONS: Record<string, any> = {
   财经: TrendingUp,
   体育: Trophy,
   娱乐: Music,
+  动漫: Palette,
+  游戏: Gamepad2,
   汽车: Car,
   其他: HelpCircle,
 }
