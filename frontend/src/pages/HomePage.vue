@@ -302,7 +302,7 @@ async function loadHot(cat: string) {
   try {
     const r = await api<HotResponse>('/hot', {
       // 必须显式 mode=category,否则后端会把 category 参数忽略,返回总榜跨类数据
-      query: { limit: 20, hours: 168, mode: 'category', category: cat, threshold: 0 },
+      query: { limit: 20, hours: 24, mode: 'category', category: cat, threshold: 0 },
     })
     hotItems.value = r.items
   } catch {
@@ -318,7 +318,7 @@ async function loadHot(cat: string) {
 async function loadFeed() {
   try {
     const r = await api<HotResponse & { personalized?: boolean }>('/hot', {
-      query: { limit: 30, hours: 168, threshold: 0, mode: 'feed' },
+      query: { limit: 30, hours: 24, threshold: 0, mode: 'feed' },
     })
     feedItems.value = r.items
     // 后端返回时如果带 personalized 字段,前端用;否则默认 random
@@ -354,7 +354,7 @@ async function loadBanner() {
       cfg.categories.map(async (cat) => {
         try {
           const r = await api<HotResponse>('/hot', {
-            query: { limit: cfg.max_per_category, hours: 168, mode: 'category', category: cat, threshold: 0 },
+            query: { limit: cfg.max_per_category, hours: 24, mode: 'category', category: cat, threshold: 0 },
           })
           return { category: cat, items: r.items.slice(0, cfg.max_per_category) }
         } catch {

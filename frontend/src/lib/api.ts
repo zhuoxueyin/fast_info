@@ -53,7 +53,7 @@ export async function deleteSub(id: string) {
 // 话题
 // ============================================================
 
-export async function createTopicNow(nl_query: string, max_items = 12, hours = 48) {
+export async function createTopicNow(nl_query: string, max_items = 12, hours = 24) {
   return authFetch('/api/topics/now', { method: 'POST', body: { nl_query, max_items, hours } })
 }
 
