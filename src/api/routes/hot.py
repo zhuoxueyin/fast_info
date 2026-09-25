@@ -438,6 +438,7 @@ class HotCategoriesResponse(BaseModel):
 # 类目 emoji(前端 / 后端共用,只做兜底,前端可覆盖)
 L1_ICON: Dict[str, str] = {
     "科技": "🔬", "AI": "🤖", "体育": "⚽", "娱乐": "🎬",
+    "动漫": "🎨", "游戏": "🎮",
     "财经": "💰", "汽车": "🚗", "其他": "📂",
 }
 
