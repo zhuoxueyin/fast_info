@@ -81,11 +81,12 @@
     </section>
 
     <section class="mb-3">
-      <div class="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2">
+      <div ref="l1TabsRef" class="flex gap-2 overflow-x-auto scrollbar-hide pb-2 -mx-2 px-2 snap-x snap-mandatory">
         <button
           v-for="cat in l1Tabs"
           :key="cat"
-          class="text-sm px-4 py-1.5 rounded-full whitespace-nowrap transition flex-shrink-0"
+          :data-l1="cat"
+          class="text-sm px-4 py-1.5 rounded-full whitespace-nowrap transition flex-shrink-0 snap-start"
           :class="activeL1 === cat
             ? 'bg-emerald-500 text-white'
             : 'bg-white border border-slate-200 text-slate-700 hover:border-emerald-300'"
@@ -168,7 +169,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { NEmpty, NInput, NButton, useMessage } from 'naive-ui'
 import { api, createTopicNow } from '@/lib/api'
@@ -297,7 +298,73 @@ const bannerGridClass = computed(() => {
 function selectL1(cat: string) {
   activeL1.value = cat
   activeL2.value = ''
+  // 选中后滚动 tab 到可见区(尤其是边界 tab)
+  nextTick(() => {
+    const el = l1TabsRef.value?.querySelector(`[data-l1="${cat}"]`) as HTMLElement | null
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  })
 }
+
+const l1TabsRef = ref<HTMLElement | null>(null)
+
+// 键盘 ←/→ 切换 tab
+function onTabKey(e: KeyboardEvent) {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  const idx = l1Tabs.indexOf(activeL1.value)
+  if (idx < 0) return
+  const next = e.key === 'ArrowRight'
+    ? Math.min(idx + 1, l1Tabs.length - 1)
+    : Math.max(idx - 1, 0)
+  selectL1(l1Tabs[next])
+}
+
+// ============================================================
+// 手势:左右滑动整个页面 → 切到下一个/上一个 L1
+// (desktop 用键盘, mobile 用触摸; 阈值 60px 防误触)
+// ============================================================
+let touchStartX = 0
+let touchStartY = 0
+let touchStartT = 0
+function onTouchStart(e: TouchEvent) {
+  // 只响应单指
+  if (e.touches.length !== 1) return
+  touchStartX = e.touches[0].clientX
+  touchStartY = e.touches[0].clientY
+  touchStartT = Date.now()
+}
+function onTouchEnd(e: TouchEvent) {
+  if (e.changedTouches.length !== 1) return
+  const dx = e.changedTouches[0].clientX - touchStartX
+  const dy = e.changedTouches[0].clientY - touchStartY
+  const dt = Date.now() - touchStartT
+  // 阈值:水平滑距 ≥ 60px + 水平占比 > 垂直占比 + 时间 < 500ms
+  if (Math.abs(dx) < 60) return
+  if (Math.abs(dx) < Math.abs(dy)) return  // 垂直滑动不响应(让 scroll 正常工作)
+  if (dt > 500) return
+  const idx = l1Tabs.indexOf(activeL1.value)
+  if (idx < 0) return
+  if (dx < 0) {
+    // 左滑 → 下一个
+    selectL1(l1Tabs[Math.min(idx + 1, l1Tabs.length - 1)])
+  } else {
+    // 右滑 → 上一个
+    selectL1(l1Tabs[Math.max(idx - 1, 0)])
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onTabKey)
+  // 只在 touch 设备上挂监听(性能友好;desktop 不会误触)
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+  }
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onTabKey)
+  window.removeEventListener('touchstart', onTouchStart)
+  window.removeEventListener('touchend', onTouchEnd)
+})
 
 async function loadHot(cat: string) {
   try {
