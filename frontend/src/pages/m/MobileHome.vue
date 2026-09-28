@@ -106,11 +106,12 @@
     </section>
 
     <!-- L1 筛选 -->
-    <div class="flex gap-1.5 overflow-x-auto pb-2 -mx-4 px-4 sticky top-0 z-10 bg-slate-100/95 backdrop-blur-sm">
+    <div ref="l1TabsRef" class="flex gap-1.5 overflow-x-auto scrollbar-hide pb-2 -mx-4 px-4 sticky top-0 z-10 bg-slate-100/95 backdrop-blur-sm snap-x">
       <button
         v-for="cat in l1Tabs"
         :key="cat"
-        class="text-[11px] px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 font-medium transition"
+        :data-l1="cat"
+        class="text-[11px] px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 font-medium transition snap-start"
         :class="activeL1 === cat
           ? 'bg-slate-900 text-white shadow'
           : 'bg-white border border-slate-200 text-slate-600'"
@@ -196,7 +197,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { Search, Sparkles, Trophy, Flame, Radar } from 'lucide-vue-next'
@@ -271,6 +272,37 @@ function openItem(id: string) {
 function selectL1(cat: string) {
   activeL1.value = cat
   loadFeed()
+  // 选中后滚动 tab 到可见区(尤其是边界 tab)
+  nextTick(() => {
+    const el = l1TabsRef.value?.querySelector(`[data-l1="${cat}"]`) as HTMLElement | null
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  })
+}
+
+const l1TabsRef = ref<HTMLElement | null>(null)
+
+// 左右滑手势切分类(整个页面)
+let touchStartX = 0
+let touchStartY = 0
+let touchStartT = 0
+function onTouchStart(e: TouchEvent) {
+  if (e.touches.length !== 1) return
+  touchStartX = e.touches[0].clientX
+  touchStartY = e.touches[0].clientY
+  touchStartT = Date.now()
+}
+function onTouchEnd(e: TouchEvent) {
+  if (e.changedTouches.length !== 1) return
+  const dx = e.changedTouches[0].clientX - touchStartX
+  const dy = e.changedTouches[0].clientY - touchStartY
+  const dt = Date.now() - touchStartT
+  if (Math.abs(dx) < 60) return
+  if (Math.abs(dx) < Math.abs(dy)) return
+  if (dt > 500) return
+  const idx = l1Tabs.indexOf(activeL1.value)
+  if (idx < 0) return
+  if (dx < 0) selectL1(l1Tabs[Math.min(idx + 1, l1Tabs.length - 1)])
+  else selectL1(l1Tabs[Math.max(idx - 1, 0)])
 }
 
 async function loadFeed() {
@@ -382,5 +414,13 @@ onMounted(() => {
   loadFeed()
   loadHot()
   loadRadar()
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+  }
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('touchstart', onTouchStart)
+  window.removeEventListener('touchend', onTouchEnd)
 })
 </script>

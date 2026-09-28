@@ -27,3 +27,7 @@ code, pre, .mono {
 html, body, #app { min-height: 100vh; }
 a { color: inherit; text-decoration: none; }
 
+/* 隐藏滚动条但保留滚动能力(用于 tab 横滑等) */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
+
