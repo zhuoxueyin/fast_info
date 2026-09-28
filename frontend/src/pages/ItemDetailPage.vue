@@ -31,6 +31,7 @@
       <a :href="item.url" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-emerald-600 hover:underline text-sm">
         查看原文 →
       </a>
+      <span class="text-xs text-slate-400 ml-3">←/→ 切换同类目</span>
     </article>
     <n-empty v-else-if="loaded" description="文章不存在" />
     <n-spin v-else />
@@ -65,14 +66,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { NEmpty, NSpin } from 'naive-ui'
 import dayjs from 'dayjs'
 import { api } from '@/lib/api'
 import type { Item, HotResponse } from '@/types/api'
 
 const route = useRoute()
+const router = useRouter()
 const id = computed(() => route.params.id as string)
 const item = ref<Item | null>(null)
 const related = ref<Item[]>([])
@@ -128,5 +130,35 @@ watch(() => route.params.id, () => {
     loadItem()
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+})
+
+// 键盘 ←/→ 切换上一/下一条(优先用同类目热门作 next/prev)
+function neighborIds() {
+  const ids = related.value.map(r => r.id).filter(x => x !== id.value)
+  if (!ids.length) return { prev: null, next: null }
+  const cur = related.value.findIndex(r => r.id === id.value)
+  if (cur < 0) return { prev: null, next: ids[0] }
+  return {
+    prev: cur > 0 ? related.value[cur - 1].id : null,
+    next: cur < related.value.length - 1 ? related.value[cur + 1].id : null,
+  }
+}
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    // 如果焦点在 input/textarea,跳过
+    const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase()
+    if (tag === 'input' || tag === 'textarea') return
+    const { prev, next } = neighborIds()
+    const target = e.key === 'ArrowRight' ? next : prev
+    if (target) router.push(`/items/${target}`)
+  }
+}
+
+onMounted(() => {
+  loadItem()
+  window.addEventListener('keydown', onKey)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
 })
 </script>

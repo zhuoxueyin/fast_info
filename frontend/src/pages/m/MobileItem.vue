@@ -94,7 +94,7 @@
         </button>
       </div>
       <p v-if="feedIds.length > 1" class="text-center text-[10px] text-white/35 pb-6">
-        上下滑动也可切换
+        左右滑动切换 · ←→ 也可
       </p>
     </div>
   </div>
@@ -167,17 +167,27 @@ function goNeighbor(id: string | null) {
   router.replace(`/m/items/${id}`)
 }
 
-// 轻量上下滑切条
+// 左右滑手势切条(主);上下滑手势也保留作后备
+let touchX0 = 0
 let touchY0 = 0
 function onTouchStart(e: TouchEvent) {
+  touchX0 = e.changedTouches[0]?.clientX ?? 0
   touchY0 = e.changedTouches[0]?.clientY ?? 0
 }
 function onTouchEnd(e: TouchEvent) {
+  const x1 = e.changedTouches[0]?.clientX ?? 0
   const y1 = e.changedTouches[0]?.clientY ?? 0
+  const dx = x1 - touchX0
   const dy = y1 - touchY0
-  if (Math.abs(dy) < 70) return
-  if (dy < 0 && nextId.value) goNeighbor(nextId.value)
-  else if (dy > 0 && prevId.value) goNeighbor(prevId.value)
+  if (Math.abs(dx) >= 60 && Math.abs(dx) > Math.abs(dy)) {
+    // 左滑 → 下一条; 右滑 → 上一条
+    if (dx < 0 && nextId.value) goNeighbor(nextId.value)
+    else if (dx > 0 && prevId.value) goNeighbor(prevId.value)
+  } else if (Math.abs(dy) >= 70 && Math.abs(dy) > Math.abs(dx)) {
+    // 上下滑兜底
+    if (dy < 0 && nextId.value) goNeighbor(nextId.value)
+    else if (dy > 0 && prevId.value) goNeighbor(prevId.value)
+  }
 }
 
 watch(
