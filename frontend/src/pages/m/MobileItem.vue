@@ -167,7 +167,7 @@ function goNeighbor(id: string | null) {
   router.replace(`/m/items/${id}`)
 }
 
-// 左右滑手势切条(主);上下滑手势也保留作后备
+// 左右滑手势切条(只响应水平滑动;上下滑动留给浏览器原生滚动)
 let touchX0 = 0
 let touchY0 = 0
 function onTouchStart(e: TouchEvent) {
@@ -179,15 +179,11 @@ function onTouchEnd(e: TouchEvent) {
   const y1 = e.changedTouches[0]?.clientY ?? 0
   const dx = x1 - touchX0
   const dy = y1 - touchY0
-  if (Math.abs(dx) >= 60 && Math.abs(dx) > Math.abs(dy)) {
-    // 左滑 → 下一条; 右滑 → 上一条
-    if (dx < 0 && nextId.value) goNeighbor(nextId.value)
-    else if (dx > 0 && prevId.value) goNeighbor(prevId.value)
-  } else if (Math.abs(dy) >= 70 && Math.abs(dy) > Math.abs(dx)) {
-    // 上下滑兜底
-    if (dy < 0 && nextId.value) goNeighbor(nextId.value)
-    else if (dy > 0 && prevId.value) goNeighbor(prevId.value)
-  }
+  // 只在水平滑动为主时触发(阈值 60px 且 |dx| > |dy|)
+  if (Math.abs(dx) < 60) return
+  if (Math.abs(dx) <= Math.abs(dy)) return
+  if (dx < 0 && nextId.value) goNeighbor(nextId.value)
+  else if (dx > 0 && prevId.value) goNeighbor(prevId.value)
 }
 
 watch(
