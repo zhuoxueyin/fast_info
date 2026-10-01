@@ -545,19 +545,29 @@ function toggleL2(l2: string) {
 
 function applyParsed(parsed: any) {
   const safe = parsed && typeof parsed === 'object' ? parsed : {}
-  const freq = parseCronToFreq(safe.cron_expr)
   const next = defaultForm()
   next.title = typeof safe.title === 'string' ? safe.title : ''
   next.keywords = Array.isArray(safe.keywords) ? safe.keywords.map(String) : []
   next.categories_l1 = Array.isArray(safe.categories_l1) ? safe.categories_l1.map(String) : []
   next.categories_l2 = Array.isArray(safe.categories_l2) ? safe.categories_l2.map(String) : []
-  next.freq_mode = freq.mode
-  next.hour = freq.hour
-  next.minute = freq.minute
-  next.weeklyDay = freq.weeklyDay
-  next.interval_min = Number.isFinite(safe.interval_min) && safe.interval_min > 0
+  // 优先 interval_min(后端兜底后:用户说「每隔 N 小时」应返回 interval_min)
+  const parsedInterval = Number.isFinite(safe.interval_min) && safe.interval_min > 0
     ? Number(safe.interval_min)
-    : freq.interval_min
+    : 0
+  if (parsedInterval > 0) {
+    next.freq_mode = 'interval'
+    next.interval_min = parsedInterval
+    next.hour = 9
+    next.minute = 0
+  } else {
+    // 没 interval_min 才从 cron_expr 推 daily/weekly
+    const freq = parseCronToFreq(safe.cron_expr)
+    next.freq_mode = freq.mode
+    next.hour = freq.hour
+    next.minute = freq.minute
+    next.weeklyDay = freq.weeklyDay
+    next.interval_min = freq.interval_min
+  }
   next.max_items = Number.isFinite(safe.max_items) ? Number(safe.max_items) : 10
   // channels / feishu_targets 保留用户已在页面上选好的，不被 AI 解析覆盖
   next.channels = form.value.channels && form.value.channels.length
