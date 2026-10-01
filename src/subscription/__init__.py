@@ -209,6 +209,21 @@ def apply_hot_mode_defaults(sub_or_parsed: dict, nl_query: str | None = None) ->
             sub_or_parsed["interval_min"] = 0
             if not sub_or_parsed.get("cron_expr") or sub_or_parsed.get("cron_expr") in ("* * * * *",):
                 sub_or_parsed["cron_expr"] = "0 2 * * *"  # 默认北京 10:00
+
+    # 「每隔 N 分钟/小时」兜底:即使 LLM 没返回 interval_min,也从 nl 抽
+    # —— 修复"每隔 6 小时关注周杰伦"被识别为"每天 9 点"的 bug
+    m_interval = re.search(r"每隔\s*(\d+)\s*(分钟|分|小时|刻钟)", nl)
+    if m_interval and int(sub_or_parsed.get("interval_min") or 0) == 0:
+        n = int(m_interval.group(1))
+        unit = m_interval.group(2)
+        if unit in ("分钟", "分"):
+            sub_or_parsed["interval_min"] = max(n, 1)
+        else:  # 小时/刻钟
+            sub_or_parsed["interval_min"] = max(n * 60, 10)
+        # interval 模式下用每分钟 cron,scheduler 按 interval_min 顺延
+        if not sub_or_parsed.get("cron_expr") or sub_or_parsed["cron_expr"] == "0 9 * * *":
+            sub_or_parsed["cron_expr"] = "* * * * *"
+
     return sub_or_parsed
 
 
@@ -327,11 +342,15 @@ async def parse_nl_to_subscription(
                 "  sources: 数据源数组,['all'] 即可\n"
                 "  categories_l1: 一级类目,可选 ['科技', 'AI', '体育', '娱乐', '财经', '汽车', '其他']\n"
                 "  categories_l2: 二级类目,可选 ['大模型', 'AI芯片', 'AI应用', 'AI框架', '机器人', '互联网', '硬件', '数码评测', '科技融资', '开源', '足球', '篮球', '电竞', '影视', '音乐', '明星', '综艺', '动漫', '宏观', 'A股', '美股', '港股', '币圈', '创业', '新能源', '自动驾驶', '新势力', '传统车企']\n"
-                "  cron_expr: cron 表达式,默认 '0 9 * * *'(UTC)。用户说每天N点按北京时间理解\n"
-                "  max_items: 每次最多取 N 条,默认 10;热点汇总可 10-15\n"
-                "  channels: ['inbox'] (默认站内收件箱)\n"
-                "  interval_min: 自定义间隔分钟;0=用 cron。日更热点必须 0\n"
-                "  lookback_hours: 回溯小时,热点汇总默认 24\n"
+                "  cron_expr: cron 表达式,默认 '0 9 * * *'(UTC)。用户说每天N点按北京时间理解\\n"
+                "  max_items: 每次最多取 N 条,默认 10;热点汇总可 10-15\\n"
+                "  channels: ['inbox'] (默认站内收件箱)\\n"
+                "  interval_min: 自定义间隔分钟。规则:\\n"
+                "    - 用户说「每隔 N 分钟/小时」→ interval_min=N 或 N×60,cron_expr='* * * * *'\\n"
+                "    - 用户说「每 N 分钟/小时」也按 interval 处理\\n"
+                "    - 用户说「每天 N 点/每周 X N 点」→ interval_min=0,cron_expr=北京 N 点转 UTC\\n"
+                "    - 默认 0(走 cron)\\n"
+                "  lookback_hours: 回溯小时,热点汇总默认 24\\n"
                 "  track_entity: 事件/人物/主题的**核心实体名**(必须尽量识别)。"
                 "用户只说一个名字时 track_entity 就是该名字本身(如 '王力宏'、'世界杯'、'OpenAI');"
                 "无法识别时输出 null\n\n"
@@ -399,6 +418,32 @@ async def parse_nl_to_subscription(
     # 清理 track_entity:null/空串 → None
     if not parsed["track_entity"]:
         parsed["track_entity"] = None
+
+    # 兜底:LLM 没返回 keywords 时,从 nl_query 抽实体词
+    if not parsed["keywords"]:
+        try:
+            from retrieval.topic_search import extract_core_terms
+            fallback_kws = extract_core_terms(nl_query, parsed)
+            if fallback_kws:
+                parsed["keywords"] = fallback_kws
+        except Exception:
+            pass
+        if not parsed["keywords"]:
+            import re as _re
+            cjk = _re.findall(r"[\u4e00-\u9fa5]{2,6}", nl_query)
+            en = _re.findall(r"[A-Za-z][A-Za-z0-9]{1,}", nl_query)
+            # 排除常见停用词(部分 L1 / 时间词)
+            stop = {"每天", "每日", "实时", "热点", "热搜", "要闻", "订阅", "推送",
+                    "信息", "新闻", "快讯", "动态", "关注", "每隔", "分钟", "小时", "点"}
+            cjk = [k for k in cjk if k not in stop]
+            parsed["keywords"] = list(dict.fromkeys(cjk + en))[:6]
+        # track_entity 兜底:从 nl 抠最长中文实体
+        if not parsed.get("track_entity"):
+            import re as _re
+            ents = _re.findall(r"[\u4e00-\u9fa5]{2,8}", nl_query)
+            ents = [e for e in ents if e not in {"每天", "每日", "实时", "热点", "热搜", "要闻", "订阅", "推送"}]
+            if ents:
+                parsed["track_entity"] = max(ents, key=len)
 
     # 热点榜单兜底:NL/LLM 元词 → match_mode=hot(不靠 keywords 硬过滤)
     if should_use_hot_mode(nl_query, parsed):

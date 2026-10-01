@@ -150,6 +150,8 @@ const loading = ref(true)
 
 function scheduleLabel(s: Subscription) {
   if (s.interval_min) return `每 ${s.interval_min}m`
+  // interval 模式在存储中可能 cron_expr='* * * * *',还原为"实时"
+  if (s.cron_expr === '* * * * *') return '实时'
   return s.cron_expr || '定时'
 }
 
