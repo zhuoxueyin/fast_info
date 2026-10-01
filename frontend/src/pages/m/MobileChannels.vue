@@ -31,10 +31,25 @@
       <article
         v-for="s in subs"
         :key="s.id"
-        class="relative rounded-2xl overflow-hidden shadow-md min-h-[168px] cursor-pointer active:scale-[0.98] transition"
+        class="relative rounded-2xl overflow-hidden shadow-md min-h-[168px] cursor-pointer active:scale-[0.98] transition select-none"
         :style="{ background: coverTone(s.id + s.title) }"
         @click="openChannel(s)"
+        @touchstart.passive="onLongPressStart(s, $event)"
+        @touchend.passive="onLongPressEnd"
+        @touchmove.passive="onLongPressEnd"
       >
+        <!-- 长按出现的红底删除覆盖层 -->
+        <transition name="fade">
+          <div
+            v-if="longPressTarget?.id === s.id"
+            class="absolute inset-0 bg-rose-500/85 backdrop-blur-sm flex flex-col items-center justify-center text-white"
+          >
+            <Trash2 :size="32" class="mb-1.5" />
+            <p class="text-sm font-semibold">松开取消订阅</p>
+            <p class="text-[10px] text-white/80 mt-0.5">「{{ s.title }}」</p>
+          </div>
+        </transition>
+
         <div class="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/10" />
         <div class="relative p-3 flex flex-col h-full min-h-[168px]">
           <div class="flex items-center gap-1 mb-auto">
@@ -80,6 +95,28 @@
       </router-link>
     </div>
 
+    <!-- 删除确认底部 sheet -->
+    <div
+      v-if="confirmDelete"
+      class="fixed inset-x-0 bottom-0 z-50 px-3 pb-3 animate-[slideUp_0.2s_ease-out]"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 max-w-md mx-auto">
+        <p class="text-sm font-semibold text-slate-900 mb-1">确认取消订阅？</p>
+        <p class="text-xs text-slate-500 mb-3">「{{ confirmDelete.title }}」将停止推送,推送历史保留</p>
+        <div class="flex gap-2">
+          <button
+            class="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium active:bg-slate-200"
+            @click="confirmDelete = null"
+          >再想想</button>
+          <button
+            class="flex-1 py-2.5 rounded-xl bg-rose-500 text-white text-sm font-semibold active:bg-rose-600"
+            :disabled="deleting"
+            @click="doDelete"
+          >{{ deleting ? '取消中…' : '确认取消' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 底部入口：晨报信封 -->
     <router-link
       to="/m/me/inbox"
@@ -100,12 +137,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Mail, ChevronRight } from 'lucide-vue-next'
-import { api } from '@/lib/api'
+import { Plus, Mail, ChevronRight, Trash2 } from 'lucide-vue-next'
+import { useMessage } from 'naive-ui'
+import { api, deleteSub } from '@/lib/api'
 import type { Subscription } from '@/types/api'
 import { coverTone, formatRemain } from '@/lib/mobile-ui'
 
 const router = useRouter()
+const msg = useMessage()
 const subs = ref<Subscription[]>([])
 const loading = ref(true)
 
@@ -115,7 +154,51 @@ function scheduleLabel(s: Subscription) {
 }
 
 function openChannel(s: Subscription) {
+  // 长按触发了删除确认时,屏蔽掉"误点"的 click
+  if (longPressTarget.value) return
   router.push(`/m/subs/edit/${s.id}`)
+}
+
+// 长按删除手势(800ms 触发;移动 5px 取消)
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+const longPressTarget = ref<Subscription | null>(null)
+let pressStartX = 0
+let pressStartY = 0
+function onLongPressStart(s: Subscription, e: TouchEvent) {
+  pressStartX = e.touches[0].clientX
+  pressStartY = e.touches[0].clientY
+  longPressTarget.value = s
+  longPressTimer = setTimeout(() => {
+    longPressTarget.value = s  // 确认进入"待确认"状态,显示红底
+  }, 500)
+}
+function onLongPressEnd() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+  // 如果已经进入了长按状态 → 弹出底部确认 sheet
+  if (longPressTarget.value) {
+    confirmDelete.value = longPressTarget.value
+    longPressTarget.value = null
+  }
+}
+
+const confirmDelete = ref<Subscription | null>(null)
+const deleting = ref(false)
+async function doDelete() {
+  if (!confirmDelete.value || deleting.value) return
+  deleting.value = true
+  try {
+    await deleteSub(confirmDelete.value.id)
+    msg.success('已取消订阅')
+    subs.value = subs.value.filter(s => s.id !== confirmDelete.value!.id)
+  } catch (e: any) {
+    msg.error(e?.data?.detail || '取消失败')
+  } finally {
+    deleting.value = false
+    confirmDelete.value = null
+  }
 }
 
 onMounted(async () => {
@@ -127,3 +210,12 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
+.fade-enter-from, .fade-leave-to       { opacity: 0; }
+</style>
